@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: tutorkim-backend
+  datasource:
+    url: ${TUTORKIM_DB_URL:jdbc:postgresql://localhost:5432/tutorkim}
+    username: ${TUTORKIM_DB_USERNAME:tutorkim}
+    password: ${TUTORKIM_DB_PASSWORD:tutorkim}
+  data:
+    redis:
+      host: ${TUTORKIM_REDIS_HOST:localhost}
+      port: ${TUTORKIM_REDIS_PORT:6379}
+  jpa:
+    hibernate:
+      ddl-auto: ${TUTORKIM_JPA_DDL_AUTO:update}
+    open-in-view: false
+
+server:
+  port: ${TUTORKIM_SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
