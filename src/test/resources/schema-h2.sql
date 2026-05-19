@@ -1,3 +1,4 @@
+create domain if not exists inet as varchar;
 create domain if not exists user_role as varchar;
 create domain if not exists auth_provider as varchar;
 create domain if not exists auth_session_client_type as varchar;
