@@ -68,7 +68,7 @@ class User(
     @GeneratedValue(strategy = GenerationType.UUID)
     var id: UUID? = null
 
-    @Column(name = "created_at", nullable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now()
 
     @Column(name = "updated_at", nullable = false)
@@ -113,7 +113,7 @@ class UserAuthAccount(
     @GeneratedValue(strategy = GenerationType.UUID)
     var id: UUID? = null
 
-    @Column(name = "created_at", nullable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now()
 
     @Column(name = "updated_at", nullable = false)
@@ -171,7 +171,7 @@ class AuthSession(
     @GeneratedValue(strategy = GenerationType.UUID)
     var id: UUID? = null
 
-    @Column(name = "created_at", nullable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now()
 
     @Column(name = "updated_at", nullable = false)

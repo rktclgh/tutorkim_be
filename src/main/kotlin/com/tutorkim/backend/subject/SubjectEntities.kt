@@ -36,7 +36,7 @@ class Subject(
     @GeneratedValue(strategy = GenerationType.UUID)
     var id: UUID? = null
 
-    @Column(name = "created_at", nullable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now()
 
     @Column(name = "updated_at", nullable = false)
@@ -71,6 +71,6 @@ class TeacherSubject(
     @GeneratedValue(strategy = GenerationType.UUID)
     var id: UUID? = null
 
-    @Column(name = "created_at", nullable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now()
 }

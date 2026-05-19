@@ -118,9 +118,6 @@ class TeacherInviteCodeService(
         )
 
         if (defaultSubject != null) {
-            check(teacherStudentSubjectRepository.countByTeacherStudent_IdAndPrimaryTrue(relationship.id!!) == 0L) {
-                "Teacher-student relationship already has a primary subject."
-            }
             teacherStudentSubjectRepository.save(
                 TeacherStudentSubject(
                     teacherStudent = relationship,

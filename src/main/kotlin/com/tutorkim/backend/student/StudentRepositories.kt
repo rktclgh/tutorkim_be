@@ -63,6 +63,4 @@ interface TeacherInviteCodeRepository : JpaRepository<TeacherInviteCode, UUID> {
 
 interface TeacherStudentSubjectRepository : JpaRepository<TeacherStudentSubject, UUID> {
     fun findByTeacherStudent_Id(teacherStudentId: UUID): List<TeacherStudentSubject>
-
-    fun countByTeacherStudent_IdAndPrimaryTrue(teacherStudentId: UUID): Long
 }

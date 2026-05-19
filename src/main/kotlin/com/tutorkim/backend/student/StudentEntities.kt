@@ -43,7 +43,7 @@ class TeacherProfile(
     @GeneratedValue(strategy = GenerationType.UUID)
     var id: UUID? = null
 
-    @Column(name = "created_at", nullable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now()
 
     @Column(name = "updated_at", nullable = false)
@@ -81,7 +81,7 @@ class StudentProfile(
     @GeneratedValue(strategy = GenerationType.UUID)
     var id: UUID? = null
 
-    @Column(name = "created_at", nullable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now()
 
     @Column(name = "updated_at", nullable = false)
@@ -129,7 +129,7 @@ class TeacherStudent(
     @GeneratedValue(strategy = GenerationType.UUID)
     var id: UUID? = null
 
-    @Column(name = "created_at", nullable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now()
 
     @Column(name = "updated_at", nullable = false)
@@ -166,7 +166,7 @@ class TeacherInviteCode(
     @Column(name = "expires_at", nullable = false)
     var expiresAt: Instant,
 
-    @Column(name = "created_at", nullable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now(),
 ) {
     @Id
@@ -201,6 +201,6 @@ class TeacherStudentSubject(
     @GeneratedValue(strategy = GenerationType.UUID)
     var id: UUID? = null
 
-    @Column(name = "created_at", nullable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now()
 }
