@@ -1,9 +1,9 @@
 package com.tutorkim.backend.config
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.tutorkim.backend.common.ApiEnvelope
-import com.tutorkim.backend.common.ApiError
-import com.tutorkim.backend.common.ErrorCode
+import com.tutorkim.backend.common.dto.ApiEnvelope
+import com.tutorkim.backend.common.dto.ApiError
+import com.tutorkim.backend.common.exception.ErrorCode
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.http.MediaType
