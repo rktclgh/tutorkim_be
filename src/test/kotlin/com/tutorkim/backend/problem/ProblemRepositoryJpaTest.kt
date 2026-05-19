@@ -95,12 +95,7 @@ class ProblemRepositoryJpaTest @Autowired constructor(
 		)
 
 		assertNotNull(problem.id)
-		assertEquals(1, problemRepository.findByLabelDepth1IdOrLabelDepth2IdOrLabelDepth3IdOrLabelDepth4Id(
-			curriculumNode.id!!,
-			curriculumNode.id!!,
-			curriculumNode.id!!,
-			curriculumNode.id!!,
-		).size)
+		assertEquals(1, problemRepository.findByAnyLabelId(curriculumNode.id!!).size)
 		assertEquals(1, uploadFileRepository.findByBatchIdOrderByCreatedAtAsc(batch.id!!).size)
 		assertEquals(ProblemBlockType.DIAGRAM_IMAGE, problemBlockRepository.findByProblemIdOrderBySortOrderAsc(problem.id!!).single().blockType)
 		assertEquals("Substitute and simplify.", problemExplanationRepository.findByProblemIdOrderBySortOrderAsc(problem.id!!).single().textContent)

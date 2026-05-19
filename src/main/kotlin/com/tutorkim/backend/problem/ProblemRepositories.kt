@@ -14,12 +14,19 @@ interface ProblemUploadFileRepository : JpaRepository<ProblemUploadFile, UUID> {
 }
 
 interface ProblemRepository : JpaRepository<Problem, UUID> {
-	fun findByLabelDepth1IdOrLabelDepth2IdOrLabelDepth3IdOrLabelDepth4Id(
-		labelDepth1Id: UUID,
-		labelDepth2Id: UUID,
-		labelDepth3Id: UUID,
-		labelDepth4Id: UUID,
-	): List<Problem>
+	@Query(
+		"""
+		select problem
+		from Problem problem
+		where :labelId in (
+		  problem.labelDepth1Id,
+		  problem.labelDepth2Id,
+		  problem.labelDepth3Id,
+		  problem.labelDepth4Id
+		)
+		""",
+	)
+	fun findByAnyLabelId(@Param("labelId") labelId: UUID): List<Problem>
 
 	@Query(
 		"""

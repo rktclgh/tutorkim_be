@@ -20,15 +20,15 @@ object ProblemAnswerPolicy {
 				require(spec.choiceAnswers.single() in VALID_CHOICE_RANGE) { "single choice answer must be between 1 and 5" }
 			}
 
-				ProblemAnswerType.MULTIPLE_CHOICE -> {
-					require(spec.numericAnswer == null) { "multiple choice answer must not include a numeric answer" }
-					require(spec.choiceAnswers.size >= 2) { "multiple choice answer must include at least two choices" }
-					require(spec.choiceAnswers.size == spec.choiceAnswers.toSet().size) {
-						"multiple choice answers must not include duplicates"
-					}
-					require(spec.choiceAnswers.all { it in VALID_CHOICE_RANGE }) {
-						"multiple choice answers must be between 1 and 5"
-					}
+			ProblemAnswerType.MULTIPLE_CHOICE -> {
+				require(spec.numericAnswer == null) { "multiple choice answer must not include a numeric answer" }
+				require(spec.choiceAnswers.isNotEmpty()) { "multiple choice answer must include at least one choice" }
+				require(spec.choiceAnswers.size == spec.choiceAnswers.toSet().size) {
+					"multiple choice answers must not include duplicates"
+				}
+				require(spec.choiceAnswers.all { it in VALID_CHOICE_RANGE }) {
+					"multiple choice answers must be between 1 and 5"
+				}
 			}
 
 			ProblemAnswerType.NUMERIC -> {
