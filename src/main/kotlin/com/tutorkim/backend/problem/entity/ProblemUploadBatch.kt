@@ -9,6 +9,8 @@ import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.PreUpdate
 import jakarta.persistence.Table
+import org.hibernate.annotations.JdbcType
+import org.hibernate.dialect.PostgreSQLEnumJdbcType
 import java.time.Instant
 import java.util.UUID
 
@@ -47,11 +49,13 @@ class ProblemUploadBatch(
 	var title: String? = null,
 
 	@Enumerated(EnumType.STRING)
-	@Column(name = "source_type", nullable = false, length = 30)
+	@JdbcType(PostgreSQLEnumJdbcType::class)
+	@Column(name = "source_type", nullable = false, columnDefinition = "upload_source_type")
 	var sourceType: UploadSourceType,
 
 	@Enumerated(EnumType.STRING)
-	@Column(name = "parse_status", nullable = false, length = 30)
+	@JdbcType(PostgreSQLEnumJdbcType::class)
+	@Column(name = "parse_status", nullable = false, columnDefinition = "parse_status")
 	var parseStatus: ParseStatus = ParseStatus.PENDING,
 
 	@Column(name = "parse_model", length = 100)

@@ -196,7 +196,7 @@ class SubmissionAnswer(
 	@Column(name = "selected_choice_numbers")
 	var selectedChoiceNumbers: List<Short>? = null,
 
-	@Column(name = "numeric_answer", precision = 20, scale = 6)
+	@Column(name = "numeric_answer", columnDefinition = "numeric")
 	var numericAnswer: BigDecimal? = null,
 
 	@Column(name = "is_unknown", nullable = false)

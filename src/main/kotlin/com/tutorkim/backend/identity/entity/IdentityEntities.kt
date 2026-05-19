@@ -15,6 +15,11 @@ import jakarta.persistence.PrePersist
 import jakarta.persistence.PreUpdate
 import jakarta.persistence.Table
 import jakarta.persistence.UniqueConstraint
+import org.hibernate.annotations.JdbcType
+import org.hibernate.annotations.JdbcTypeCode
+import org.hibernate.dialect.PostgreSQLEnumJdbcType
+import org.hibernate.type.SqlTypes
+import java.net.InetAddress
 import java.time.Instant
 import java.util.UUID
 
@@ -58,7 +63,8 @@ class User(
     var phone: String? = null,
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @JdbcType(PostgreSQLEnumJdbcType::class)
+    @Column(nullable = false, columnDefinition = "user_role")
     var role: UserRole,
 
     @Column(name = "profile_image_url", columnDefinition = "text")
@@ -97,7 +103,8 @@ class UserAuthAccount(
     var user: User,
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @JdbcType(PostgreSQLEnumJdbcType::class)
+    @Column(nullable = false, columnDefinition = "auth_provider")
     var provider: AuthProvider,
 
     @Column(name = "provider_user_id", length = 255)
@@ -139,11 +146,13 @@ class AuthSession(
     var user: User,
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "client_type", nullable = false, length = 20)
+    @JdbcType(PostgreSQLEnumJdbcType::class)
+    @Column(name = "client_type", nullable = false, columnDefinition = "auth_session_client_type")
     var clientType: AuthSessionClientType = AuthSessionClientType.WEB,
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @JdbcType(PostgreSQLEnumJdbcType::class)
+    @Column(nullable = false, columnDefinition = "auth_session_status")
     var status: AuthSessionStatus = AuthSessionStatus.ACTIVE,
 
     @Column(name = "session_token_hash", length = 128)
@@ -158,8 +167,9 @@ class AuthSession(
     @Column(name = "user_agent", columnDefinition = "text")
     var userAgent: String? = null,
 
-    @Column(name = "ip_address", length = 64)
-    var ipAddress: String? = null,
+    @JdbcTypeCode(SqlTypes.INET)
+    @Column(name = "ip_address", columnDefinition = "inet")
+    var ipAddress: InetAddress? = null,
 
     @Column(name = "expires_at", nullable = false)
     var expiresAt: Instant,

@@ -17,6 +17,8 @@ import jakarta.persistence.OneToOne
 import jakarta.persistence.PreUpdate
 import jakarta.persistence.Table
 import jakarta.persistence.UniqueConstraint
+import org.hibernate.annotations.JdbcType
+import org.hibernate.dialect.PostgreSQLEnumJdbcType
 import java.time.Instant
 import java.util.UUID
 
@@ -160,7 +162,8 @@ class TeacherInviteCode(
     var code: String,
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @JdbcType(PostgreSQLEnumJdbcType::class)
+    @Column(nullable = false, columnDefinition = "invite_code_status")
     var status: InviteCodeStatus = InviteCodeStatus.ACTIVE,
 
     @Column(name = "expires_at", nullable = false)

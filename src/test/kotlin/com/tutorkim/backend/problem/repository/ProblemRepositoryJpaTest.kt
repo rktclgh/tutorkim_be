@@ -79,7 +79,7 @@ class ProblemRepositoryJpaTest @Autowired constructor(
 				sourceBatchId = batch.id,
 				answerType = ProblemAnswerType.NUMERIC,
 				correctNumericAnswer = BigDecimal("7"),
-				difficulty = 3,
+				difficulty = 3.toShort(),
 				labelDepth3Id = curriculumNode.id,
 			),
 		)
@@ -121,7 +121,7 @@ class ProblemRepositoryJpaTest @Autowired constructor(
 					subjectId = UUID.randomUUID(),
 					answerType = ProblemAnswerType.SINGLE_CHOICE,
 					correctChoiceNumbers = listOf(1, 2).map { it.toShort() },
-					difficulty = 3,
+					difficulty = 3.toShort(),
 				),
 			)
 		}

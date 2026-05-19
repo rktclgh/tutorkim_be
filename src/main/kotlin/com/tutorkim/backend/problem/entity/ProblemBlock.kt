@@ -11,7 +11,9 @@ import jakarta.persistence.PrePersist
 import jakarta.persistence.PreUpdate
 import jakarta.persistence.Table
 import jakarta.persistence.UniqueConstraint
+import org.hibernate.annotations.JdbcType
 import org.hibernate.annotations.JdbcTypeCode
+import org.hibernate.dialect.PostgreSQLEnumJdbcType
 import org.hibernate.type.SqlTypes
 import java.time.Instant
 import java.util.UUID
@@ -42,7 +44,8 @@ class ProblemBlock(
 	var problemId: UUID,
 
 	@Enumerated(EnumType.STRING)
-	@Column(name = "block_type", nullable = false, length = 30)
+	@JdbcType(PostgreSQLEnumJdbcType::class)
+	@Column(name = "block_type", nullable = false, columnDefinition = "block_type")
 	var blockType: ProblemBlockType,
 
 	@Column(name = "sort_order", nullable = false)

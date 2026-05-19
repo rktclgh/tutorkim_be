@@ -13,7 +13,9 @@ import jakarta.persistence.Index
 import jakarta.persistence.PrePersist
 import jakarta.persistence.PreUpdate
 import jakarta.persistence.Table
+import org.hibernate.annotations.JdbcType
 import org.hibernate.annotations.JdbcTypeCode
+import org.hibernate.dialect.PostgreSQLEnumJdbcType
 import org.hibernate.type.SqlTypes
 import java.math.BigDecimal
 import java.time.Instant
@@ -58,18 +60,19 @@ class Problem(
 	var originalProblemNumber: String? = null,
 
 	@Enumerated(EnumType.STRING)
-	@Column(name = "answer_type", nullable = false, length = 30)
+	@JdbcType(PostgreSQLEnumJdbcType::class)
+	@Column(name = "answer_type", nullable = false, columnDefinition = "answer_type")
 	var answerType: ProblemAnswerType,
 
 	@JdbcTypeCode(SqlTypes.ARRAY)
 	@Column(name = "correct_choice_numbers")
 	var correctChoiceNumbers: List<Short>? = null,
 
-	@Column(name = "correct_numeric_answer", precision = 20, scale = 6)
+	@Column(name = "correct_numeric_answer", columnDefinition = "numeric")
 	var correctNumericAnswer: BigDecimal? = null,
 
 	@Column(name = "difficulty", nullable = false)
-	var difficulty: Int,
+	var difficulty: Short,
 
 	@Column(name = "label_depth1_id")
 	var labelDepth1Id: UUID? = null,
@@ -87,7 +90,8 @@ class Problem(
 	var hasExplanation: Boolean = false,
 
 	@Enumerated(EnumType.STRING)
-	@Column(name = "parse_status", nullable = false, length = 30)
+	@JdbcType(PostgreSQLEnumJdbcType::class)
+	@Column(name = "parse_status", nullable = false, columnDefinition = "parse_status")
 	var parseStatus: ParseStatus = ParseStatus.NEEDS_REVIEW,
 
 	@Column(name = "reviewed_at")
@@ -116,7 +120,7 @@ class Problem(
 				answerType = answerType,
 				choiceAnswers = correctChoiceNumbers.orEmpty().map { it.toInt() },
 				numericAnswer = correctNumericAnswer,
-				difficulty = difficulty,
+				difficulty = difficulty.toInt(),
 			),
 		)
 		updatedAt = Instant.now()

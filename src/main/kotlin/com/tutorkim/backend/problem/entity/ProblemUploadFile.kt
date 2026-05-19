@@ -8,6 +8,8 @@ import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
+import org.hibernate.annotations.JdbcType
+import org.hibernate.dialect.PostgreSQLEnumJdbcType
 import java.time.Instant
 import java.util.UUID
 
@@ -26,7 +28,8 @@ class ProblemUploadFile(
 	var fileAssetId: UUID,
 
 	@Enumerated(EnumType.STRING)
-	@Column(name = "source_type", nullable = false, length = 30)
+	@JdbcType(PostgreSQLEnumJdbcType::class)
+	@Column(name = "source_type", nullable = false, columnDefinition = "upload_source_type")
 	var sourceType: UploadSourceType,
 
 	@Column(name = "page_number")
