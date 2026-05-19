@@ -1,3 +1,13 @@
+create domain if not exists user_role as varchar;
+create domain if not exists auth_provider as varchar;
+create domain if not exists auth_session_client_type as varchar;
+create domain if not exists auth_session_status as varchar;
+create domain if not exists invite_code_status as varchar;
+create domain if not exists upload_source_type as varchar;
+create domain if not exists parse_status as varchar;
+create domain if not exists answer_type as varchar;
+create domain if not exists block_type as varchar;
+create domain if not exists explanation_source_type as varchar;
 create domain if not exists assignment_type as varchar;
 create domain if not exists assignment_status as varchar;
 create domain if not exists result_visibility as varchar;

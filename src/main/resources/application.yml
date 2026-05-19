@@ -11,6 +11,7 @@ spring:
     redis:
       host: ${TUTORKIM_REDIS_HOST:localhost}
       port: ${TUTORKIM_REDIS_PORT:6379}
+      password: ${TUTORKIM_REDIS_PASSWORD:}
   jpa:
     defer-datasource-initialization: false
     hibernate:
