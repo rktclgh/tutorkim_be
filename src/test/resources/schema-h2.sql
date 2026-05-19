@@ -1,0 +1,10 @@
+create domain if not exists assignment_type as varchar;
+create domain if not exists assignment_status as varchar;
+create domain if not exists result_visibility as varchar;
+create domain if not exists submission_status as varchar;
+create domain if not exists grading_status as varchar;
+create domain if not exists problem_attempt_status as varchar;
+create domain if not exists lesson_status as varchar;
+create domain if not exists focus_level as varchar;
+create domain if not exists understanding_level as varchar;
+create domain if not exists assignment_performance as varchar;
