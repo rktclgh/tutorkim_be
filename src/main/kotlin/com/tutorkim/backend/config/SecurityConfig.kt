@@ -1,22 +1,64 @@
 package com.tutorkim.backend.config
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.tutorkim.backend.common.ApiEnvelope
+import com.tutorkim.backend.common.ApiError
+import com.tutorkim.backend.common.ErrorCode
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.http.MediaType
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.web.SecurityFilterChain
 
 @Configuration
-class SecurityConfig {
+class SecurityConfig(
+	private val objectMapper: ObjectMapper,
+) {
 	@Bean
 	fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
 		http.authorizeHttpRequests { authorize ->
 			authorize
-				.requestMatchers("/api/v1/health", "/actuator/health")
+				.requestMatchers(
+					"/api/v1/health",
+					"/api/v1/auth/kakao/authorize",
+					"/api/v1/auth/kakao/callback",
+					"/api/v1/auth/email/verification-requests",
+					"/api/v1/auth/email/verify",
+					"/api/v1/auth/csrf",
+					"/actuator/health",
+				)
 				.permitAll()
 				.anyRequest()
 				.authenticated()
 		}
+		http.exceptionHandling { exceptions ->
+			exceptions
+				.authenticationEntryPoint { _, response, _ ->
+					writeError(response, ErrorCode.UNAUTHORIZED)
+				}
+				.accessDeniedHandler { _, response, _ ->
+					writeError(response, ErrorCode.FORBIDDEN)
+				}
+		}
 
 		return http.build()
+	}
+
+	private fun writeError(
+		response: jakarta.servlet.http.HttpServletResponse,
+		errorCode: ErrorCode,
+	) {
+		response.status = errorCode.status.value()
+		response.contentType = MediaType.APPLICATION_JSON_VALUE
+		response.characterEncoding = Charsets.UTF_8.name()
+		objectMapper.writeValue(
+			response.writer,
+			ApiEnvelope.error(
+				ApiError(
+					code = errorCode,
+					message = errorCode.defaultMessage,
+				),
+			),
+		)
 	}
 }

@@ -4,6 +4,7 @@ HELP.md
 .env.*
 !.env.example
 docs/
+.worktrees/
 .gradle
 build/
 !gradle/wrapper/gradle-wrapper.jar
