@@ -34,10 +34,14 @@ class SecurityConfig(
 		http.exceptionHandling { exceptions ->
 			exceptions
 				.authenticationEntryPoint { _, response, _ ->
-					writeError(response, ErrorCode.UNAUTHORIZED)
+					if (!response.isCommitted) {
+						writeError(response, ErrorCode.UNAUTHORIZED)
+					}
 				}
 				.accessDeniedHandler { _, response, _ ->
-					writeError(response, ErrorCode.FORBIDDEN)
+					if (!response.isCommitted) {
+						writeError(response, ErrorCode.FORBIDDEN)
+					}
 				}
 		}
 

@@ -34,17 +34,18 @@ class ApiEnvelopeAdvice(
 		}
 
 		val status = responseStatus(response)
-		if (status in 200..299 && body == null) {
+		if (status == 204) {
 			return body
 		}
 
 		val envelope = if (status in 200..299) {
 			ApiEnvelope.success(data = body)
 		} else {
+			val errorCode = ErrorCode.fromStatus(status)
 			ApiEnvelope.error(
 				ApiError(
-					code = errorCodeForStatus(status),
-					message = errorCodeForStatus(status).defaultMessage,
+					code = errorCode,
+					message = (body as? String) ?: errorCode.defaultMessage,
 				),
 			)
 		}
@@ -58,7 +59,7 @@ class ApiEnvelopeAdvice(
 
 	private fun isApiRequest(request: ServerHttpRequest): Boolean {
 		val servletRequest = request as? ServletServerHttpRequest ?: return false
-		return servletRequest.servletRequest.requestURI.startsWith("/api/v1/")
+		return servletRequest.servletRequest.requestURI.startsWith(API_PREFIX)
 	}
 
 	private fun responseStatus(response: ServerHttpResponse): Int {
@@ -66,14 +67,4 @@ class ApiEnvelopeAdvice(
 		return servletResponse.servletResponse.status
 	}
 
-	private fun errorCodeForStatus(status: Int): ErrorCode =
-		when (status) {
-			400 -> ErrorCode.INVALID_REQUEST
-			401 -> ErrorCode.UNAUTHORIZED
-			403 -> ErrorCode.FORBIDDEN
-			404 -> ErrorCode.NOT_FOUND
-			409 -> ErrorCode.CONFLICT
-			in 400..499 -> ErrorCode.INVALID_REQUEST
-			else -> ErrorCode.INTERNAL_SERVER_ERROR
-		}
 }

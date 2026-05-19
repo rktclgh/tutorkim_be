@@ -64,7 +64,7 @@ class GlobalExceptionHandler {
 
 	@ExceptionHandler(ResponseStatusException::class)
 	fun handleResponseStatusException(exception: ResponseStatusException): ResponseEntity<ApiEnvelope<Nothing>> {
-		val errorCode = errorCodeForStatus(exception.statusCode.value())
+		val errorCode = ErrorCode.fromStatus(exception.statusCode.value())
 		return errorResponse(errorCode, exception.reason ?: errorCode.defaultMessage)
 	}
 
@@ -77,7 +77,7 @@ class GlobalExceptionHandler {
 		exception: Exception,
 		request: WebRequest,
 	): ResponseEntity<ApiEnvelope<Nothing>> {
-		if (request !is ServletWebRequest || !request.request.requestURI.startsWith("/api/v1/")) {
+		if (request !is ServletWebRequest || !request.request.requestURI.startsWith(API_PREFIX)) {
 			throw exception
 		}
 
@@ -101,14 +101,4 @@ class GlobalExceptionHandler {
 			)
 	}
 
-	private fun errorCodeForStatus(status: Int): ErrorCode =
-		when (status) {
-			400 -> ErrorCode.INVALID_REQUEST
-			401 -> ErrorCode.UNAUTHORIZED
-			403 -> ErrorCode.FORBIDDEN
-			404 -> ErrorCode.NOT_FOUND
-			409 -> ErrorCode.CONFLICT
-			in 400..499 -> ErrorCode.INVALID_REQUEST
-			else -> ErrorCode.INTERNAL_SERVER_ERROR
-		}
 }

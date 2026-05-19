@@ -12,5 +12,18 @@ enum class ErrorCode(
 	FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
 	NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 리소스를 찾을 수 없습니다."),
 	CONFLICT(HttpStatus.CONFLICT, "요청이 현재 상태와 충돌합니다."),
-	INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 오류가 발생했습니다."),
+	INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 오류가 발생했습니다.");
+
+	companion object {
+		fun fromStatus(status: Int): ErrorCode =
+			when (status) {
+				400 -> INVALID_REQUEST
+				401 -> UNAUTHORIZED
+				403 -> FORBIDDEN
+				404 -> NOT_FOUND
+				409 -> CONFLICT
+				in 400..499 -> INVALID_REQUEST
+				else -> INTERNAL_SERVER_ERROR
+			}
+	}
 }

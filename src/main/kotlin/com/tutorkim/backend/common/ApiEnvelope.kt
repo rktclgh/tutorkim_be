@@ -1,5 +1,7 @@
 package com.tutorkim.backend.common
 
+const val API_PREFIX = "/api/v1/"
+
 data class ApiEnvelope<T>(
 	val data: T? = null,
 	val meta: Map<String, Any?> = emptyMap(),
