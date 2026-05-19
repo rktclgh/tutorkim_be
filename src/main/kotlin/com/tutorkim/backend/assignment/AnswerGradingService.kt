@@ -43,10 +43,15 @@ class AnswerGradingService {
 	}
 
 	private fun gradeMultipleChoice(correct: List<Int>?, selected: List<Int>): Boolean? {
-		if (correct == null || correct.size < 2 || correct.size != correct.toSet().size) {
+		if (correct == null || correct.size < 2) {
 			return null
 		}
-		return selected.toSet() == correct.toSet() && selected.size == selected.toSet().size
+		val correctSet = correct.toSet()
+		if (correct.size != correctSet.size) {
+			return null
+		}
+		val selectedSet = selected.toSet()
+		return selectedSet == correctSet && selected.size == selectedSet.size
 	}
 
 	private fun gradeNumeric(correct: BigDecimal?, selected: BigDecimal?): Boolean? {
