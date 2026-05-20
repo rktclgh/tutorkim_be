@@ -8,6 +8,7 @@ import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
+import org.hibernate.annotations.CreationTimestamp
 import org.hibernate.annotations.JdbcType
 import org.hibernate.annotations.JdbcTypeCode
 import org.hibernate.dialect.PostgreSQLEnumJdbcType
@@ -36,6 +37,13 @@ enum class IngestionStageStatus {
 	PARTIAL,
 	FAILED,
 }
+
+data class BoundingBox(
+	val x: Int,
+	val y: Int,
+	val width: Int,
+	val height: Int,
+)
 
 @Entity
 @Table(name = "document_ingestion_stage_runs")
@@ -81,8 +89,9 @@ class DocumentIngestionStageRun(
 	@Column(name = "completed_at")
 	var completedAt: Instant? = null,
 
+	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
-	var createdAt: Instant = Instant.now(),
+	var createdAt: Instant? = null,
 )
 
 @Entity
@@ -110,7 +119,7 @@ class DocumentIngestionArtifact(
 
 	@JdbcTypeCode(SqlTypes.JSON)
 	@Column(name = "bounding_box", columnDefinition = "jsonb")
-	var boundingBox: Map<String, Any?>? = null,
+	var boundingBox: BoundingBox? = null,
 
 	@Column(name = "text_content", columnDefinition = "text")
 	var textContent: String? = null,
@@ -128,6 +137,7 @@ class DocumentIngestionArtifact(
 	@Column(name = "metadata", nullable = false, columnDefinition = "jsonb")
 	var metadata: Map<String, Any?> = emptyMap(),
 
+	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
-	var createdAt: Instant = Instant.now(),
+	var createdAt: Instant? = null,
 )

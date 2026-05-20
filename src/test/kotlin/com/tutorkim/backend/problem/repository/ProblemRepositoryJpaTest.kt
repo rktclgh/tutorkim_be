@@ -8,6 +8,7 @@ import com.tutorkim.backend.problem.entity.DocumentIngestionArtifact
 import com.tutorkim.backend.problem.entity.DocumentIngestionStageRun
 import com.tutorkim.backend.problem.entity.IngestionStageStatus
 import com.tutorkim.backend.problem.entity.IngestionStageType
+import com.tutorkim.backend.problem.entity.BoundingBox
 import com.tutorkim.backend.problem.entity.ParseStatus
 import com.tutorkim.backend.problem.entity.Problem
 import com.tutorkim.backend.problem.entity.ProblemAnswerType
@@ -65,6 +66,8 @@ class ProblemRepositoryJpaTest @Autowired constructor(
 				sizeBytes = 4096,
 			),
 		)
+		val curriculumNodeId = requireNotNull(curriculumNode.id) { "Curriculum node ID should not be null after saving" }
+		val fileAssetId = requireNotNull(fileAsset.id) { "File asset ID should not be null after saving" }
 		val batch = uploadBatchRepository.save(
 			ProblemUploadBatch(
 				teacherId = teacherId,
@@ -77,29 +80,32 @@ class ProblemRepositoryJpaTest @Autowired constructor(
 				averageConfidence = BigDecimal("0.91"),
 			),
 		)
+		val batchId = requireNotNull(batch.id) { "Batch ID should not be null after saving" }
 		val uploadFile = uploadFileRepository.save(
 			ProblemUploadFile(
-				batchId = batch.id!!,
-				fileAssetId = fileAsset.id!!,
+				batchId = batchId,
+				fileAssetId = fileAssetId,
 				sourceType = UploadSourceType.PAGE_IMAGE,
 				pageNumber = 1,
 			),
 		)
+		val uploadFileId = requireNotNull(uploadFile.id) { "Upload file ID should not be null after saving" }
 		val problem = problemRepository.saveAndFlush(
 			Problem(
 				ownerTeacherId = teacherId,
 				subjectId = subjectId,
-				sourceBatchId = batch.id,
+				sourceBatchId = batchId,
 				answerType = ProblemAnswerType.NUMERIC,
 				correctNumericAnswer = BigDecimal("7"),
 				difficulty = 3.toShort(),
-				labelDepth3Id = curriculumNode.id,
+				labelDepth3Id = curriculumNodeId,
 			),
 		)
+		val problemId = requireNotNull(problem.id) { "Problem ID should not be null after saving" }
 		val sourceArtifact = ingestionArtifactRepository.save(
 			DocumentIngestionArtifact(
-				batchId = batch.id!!,
-				uploadFileId = uploadFile.id,
+				batchId = batchId,
+				uploadFileId = uploadFileId,
 				artifactType = "PDF_TEXT_BLOCK",
 				pageNumber = 1,
 				textContent = "Find x when 2x + 1 = 15.",
@@ -110,14 +116,15 @@ class ProblemRepositoryJpaTest @Autowired constructor(
 				),
 			),
 		)
+		val sourceArtifactId = requireNotNull(sourceArtifact.id) { "Source artifact ID should not be null after saving" }
 		val stageRun = stageRunRepository.save(
 			DocumentIngestionStageRun(
-				batchId = batch.id!!,
+				batchId = batchId,
 				stageType = IngestionStageType.HERMES_VISUAL_SEMANTIC_REVIEW,
 				status = IngestionStageStatus.SUCCEEDED,
 				engineName = "hermes-agent-gateway:gpt-5.4-mini",
 				confidence = BigDecimal("0.90"),
-				inputArtifactIds = listOf(sourceArtifact.id!!),
+				inputArtifactIds = listOf(sourceArtifactId),
 				outputJson = mapOf(
 					"reviewScope" to "ALL_PAGES_WITH_STRUCTURED_EVIDENCE",
 					"riskSignals" to listOf("LOW_CONFIDENCE_ANSWER_MAPPING"),
@@ -125,31 +132,27 @@ class ProblemRepositoryJpaTest @Autowired constructor(
 				),
 			),
 		)
+		val stageRunId = requireNotNull(stageRun.id) { "Stage run ID should not be null after saving" }
 		val ingestionArtifact = ingestionArtifactRepository.save(
 			DocumentIngestionArtifact(
-				batchId = batch.id!!,
-				uploadFileId = uploadFile.id,
-				stageRunId = stageRun.id,
+				batchId = batchId,
+				uploadFileId = uploadFileId,
+				stageRunId = stageRunId,
 				artifactType = "PROBLEM_CROP",
 				pageNumber = 1,
-				boundingBox = mapOf(
-					"x" to 10,
-					"y" to 20,
-					"width" to 300,
-					"height" to 160,
-				),
+				boundingBox = BoundingBox(x = 10, y = 20, width = 300, height = 160),
 				fileAssetId = uploadFile.fileAssetId,
 				confidence = BigDecimal("0.90"),
 				metadata = mapOf(
 					"extractor" to "HERMES_VISUAL_SEMANTIC_REVIEW",
-					"provenance" to mapOf("artifactId" to sourceArtifact.id.toString()),
+					"provenance" to mapOf("artifactId" to sourceArtifactId.toString()),
 				),
 			),
 		)
 
 		problemBlockRepository.save(
 			ProblemBlock(
-				problemId = problem.id!!,
+				problemId = problemId,
 				sortOrder = 1,
 				blockType = ProblemBlockType.DIAGRAM_IMAGE,
 				fileAssetId = uploadFile.fileAssetId,
@@ -158,7 +161,7 @@ class ProblemRepositoryJpaTest @Autowired constructor(
 		)
 		problemExplanationRepository.save(
 			ProblemExplanation(
-				problemId = problem.id!!,
+				problemId = problemId,
 				sortOrder = 1,
 				sourceType = ProblemExplanationSourceType.TEACHER_TEXT,
 				textContent = "Substitute and simplify.",
@@ -169,29 +172,29 @@ class ProblemRepositoryJpaTest @Autowired constructor(
 		entityManager.flush()
 		entityManager.clear()
 
-		assertNotNull(problem.id)
-		assertNotNull(stageRun.id)
 		assertNotNull(ingestionArtifact.id)
-		val savedBatch = uploadBatchRepository.findById(batch.id!!).orElseThrow()
-		val savedStageRun = stageRunRepository.findByBatchIdOrderByCreatedAtAsc(batch.id!!).single()
+		val savedBatch = uploadBatchRepository.findById(batchId).orElseThrow()
+		val savedStageRun = stageRunRepository.findByBatchIdOrderByCreatedAtAsc(batchId).single()
 		val savedSourceArtifact = ingestionArtifactRepository
-			.findByBatchIdAndArtifactTypeOrderByCreatedAtAsc(batch.id!!, "PDF_TEXT_BLOCK")
+			.findByBatchIdAndArtifactTypeOrderByCreatedAtAsc(batchId, "PDF_TEXT_BLOCK")
 			.single()
 		val savedProblemCrop = ingestionArtifactRepository
-			.findByBatchIdAndArtifactTypeOrderByCreatedAtAsc(batch.id!!, "PROBLEM_CROP")
+			.findByBatchIdAndArtifactTypeOrderByCreatedAtAsc(batchId, "PROBLEM_CROP")
 			.single()
 		assertEquals("semantic-first-v1", savedBatch.pipelineVersion)
 		assertEquals(IngestionStageType.HERMES_VISUAL_SEMANTIC_REVIEW, savedStageRun.stageType)
-		assertEquals(listOf(sourceArtifact.id), savedStageRun.inputArtifactIds)
+		assertEquals(listOf(sourceArtifactId), savedStageRun.inputArtifactIds)
 		assertEquals("ALL_PAGES_WITH_STRUCTURED_EVIDENCE", savedStageRun.outputJson["reviewScope"])
+		assertNotNull(savedStageRun.createdAt)
 		assertEquals("PDF_TEXT_EXTRACTION", savedSourceArtifact.metadata["extractor"])
 		assertEquals("PROBLEM_CROP", savedProblemCrop.artifactType)
-		assertEquals(mapOf("x" to 10, "y" to 20, "width" to 300, "height" to 160), savedProblemCrop.boundingBox)
-		assertEquals(1, problemRepository.findByAnyLabelId(curriculumNode.id!!).size)
-		assertEquals(1, uploadFileRepository.findByBatchIdOrderByCreatedAtAsc(batch.id!!).size)
-		assertEquals(ProblemBlockType.DIAGRAM_IMAGE, problemBlockRepository.findByProblemIdOrderBySortOrderAsc(problem.id!!).single().blockType)
-		assertEquals("Substitute and simplify.", problemExplanationRepository.findByProblemIdOrderBySortOrderAsc(problem.id!!).single().textContent)
-		assertEquals(1, problemRepository.findActiveByOwnerSubjectAndLabel(teacherId, subjectId, curriculumNode.id!!).size)
+		assertEquals(BoundingBox(x = 10, y = 20, width = 300, height = 160), savedProblemCrop.boundingBox)
+		assertNotNull(savedProblemCrop.createdAt)
+		assertEquals(1, problemRepository.findByAnyLabelId(curriculumNodeId).size)
+		assertEquals(1, uploadFileRepository.findByBatchIdOrderByCreatedAtAsc(batchId).size)
+		assertEquals(ProblemBlockType.DIAGRAM_IMAGE, problemBlockRepository.findByProblemIdOrderBySortOrderAsc(problemId).single().blockType)
+		assertEquals("Substitute and simplify.", problemExplanationRepository.findByProblemIdOrderBySortOrderAsc(problemId).single().textContent)
+		assertEquals(1, problemRepository.findActiveByOwnerSubjectAndLabel(teacherId, subjectId, curriculumNodeId).size)
 	}
 
 	@Test

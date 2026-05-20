@@ -104,18 +104,31 @@ begin
 		execute 'create table if not exists document_ingestion_artifacts (
 			id uuid primary key default gen_random_uuid(),
 			batch_id uuid not null references problem_upload_batches(id) on delete cascade,
-			upload_file_id uuid references problem_upload_files(id),
-			stage_run_id uuid references document_ingestion_stage_runs(id),
+			upload_file_id uuid references problem_upload_files(id) on delete set null,
+			stage_run_id uuid references document_ingestion_stage_runs(id) on delete set null,
 			artifact_type varchar(80) not null,
 			page_number integer,
 			bounding_box jsonb,
 			text_content text,
 			latex_content text,
-			file_asset_id uuid references file_assets(id),
+			file_asset_id uuid references file_assets(id) on delete set null,
 			confidence numeric,
 			metadata jsonb not null default ''{}''::jsonb,
 			created_at timestamptz not null default now()
 		)';
+
+		execute 'alter table document_ingestion_artifacts
+			drop constraint if exists document_ingestion_artifacts_upload_file_id_fkey,
+			drop constraint if exists document_ingestion_artifacts_stage_run_id_fkey,
+			drop constraint if exists document_ingestion_artifacts_file_asset_id_fkey';
+
+		execute 'alter table document_ingestion_artifacts
+			add constraint document_ingestion_artifacts_upload_file_id_fkey
+				foreign key (upload_file_id) references problem_upload_files(id) on delete set null,
+			add constraint document_ingestion_artifacts_stage_run_id_fkey
+				foreign key (stage_run_id) references document_ingestion_stage_runs(id) on delete set null,
+			add constraint document_ingestion_artifacts_file_asset_id_fkey
+				foreign key (file_asset_id) references file_assets(id) on delete set null';
 
 		execute 'create index if not exists document_ingestion_artifacts_batch_idx
 			on document_ingestion_artifacts (batch_id, artifact_type)';
