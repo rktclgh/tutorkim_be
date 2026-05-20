@@ -1,6 +1,8 @@
 package com.tutorkim.backend.problem.repository
 
 import com.tutorkim.backend.problem.entity.ParseStatus
+import com.tutorkim.backend.problem.entity.DocumentIngestionArtifact
+import com.tutorkim.backend.problem.entity.DocumentIngestionStageRun
 import com.tutorkim.backend.problem.entity.Problem
 import com.tutorkim.backend.problem.entity.ProblemBlock
 import com.tutorkim.backend.problem.entity.ProblemExplanation
@@ -17,6 +19,19 @@ interface ProblemUploadBatchRepository : JpaRepository<ProblemUploadBatch, UUID>
 
 interface ProblemUploadFileRepository : JpaRepository<ProblemUploadFile, UUID> {
 	fun findByBatchIdOrderByCreatedAtAsc(batchId: UUID): List<ProblemUploadFile>
+}
+
+interface DocumentIngestionStageRunRepository : JpaRepository<DocumentIngestionStageRun, UUID> {
+	fun findByBatchIdOrderByCreatedAtAsc(batchId: UUID): List<DocumentIngestionStageRun>
+}
+
+interface DocumentIngestionArtifactRepository : JpaRepository<DocumentIngestionArtifact, UUID> {
+	fun findByBatchIdOrderByCreatedAtAsc(batchId: UUID): List<DocumentIngestionArtifact>
+
+	fun findByBatchIdAndArtifactTypeOrderByCreatedAtAsc(
+		batchId: UUID,
+		artifactType: String,
+	): List<DocumentIngestionArtifact>
 }
 
 interface ProblemRepository : JpaRepository<Problem, UUID> {

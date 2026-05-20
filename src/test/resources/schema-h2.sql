@@ -9,6 +9,8 @@ create domain if not exists parse_status as varchar;
 create domain if not exists answer_type as varchar;
 create domain if not exists block_type as varchar;
 create domain if not exists explanation_source_type as varchar;
+create domain if not exists ingestion_stage_type as varchar;
+create domain if not exists ingestion_stage_status as varchar;
 create domain if not exists assignment_type as varchar;
 create domain if not exists assignment_status as varchar;
 create domain if not exists result_visibility as varchar;

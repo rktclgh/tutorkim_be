@@ -11,6 +11,7 @@ import jakarta.persistence.PreUpdate
 import jakarta.persistence.Table
 import org.hibernate.annotations.JdbcType
 import org.hibernate.dialect.PostgreSQLEnumJdbcType
+import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
 
@@ -57,6 +58,21 @@ class ProblemUploadBatch(
 	@JdbcType(PostgreSQLEnumJdbcType::class)
 	@Column(name = "parse_status", nullable = false, columnDefinition = "parse_status")
 	var parseStatus: ParseStatus = ParseStatus.PENDING,
+
+	@Column(name = "pipeline_version", length = 80)
+	var pipelineVersion: String? = null,
+
+	@Column(name = "deterministic_coverage_rate", columnDefinition = "numeric")
+	var deterministicCoverageRate: BigDecimal? = null,
+
+	@Column(name = "hermes_review_rate", columnDefinition = "numeric")
+	var hermesReviewRate: BigDecimal? = null,
+
+	@Column(name = "hermes_targeted_repair_rate", columnDefinition = "numeric")
+	var hermesTargetedRepairRate: BigDecimal? = null,
+
+	@Column(name = "average_confidence", columnDefinition = "numeric")
+	var averageConfidence: BigDecimal? = null,
 
 	@Column(name = "parse_model", length = 100)
 	var parseModel: String? = null,
