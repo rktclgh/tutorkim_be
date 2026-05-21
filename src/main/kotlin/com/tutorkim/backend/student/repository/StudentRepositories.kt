@@ -31,6 +31,33 @@ interface StudentProfileRepository : JpaRepository<StudentProfile, UUID> {
 interface TeacherStudentRepository : JpaRepository<TeacherStudent, UUID> {
     fun existsByTeacher_IdAndStudent_Id(teacherId: UUID, studentId: UUID): Boolean
 
+    @Query(
+        """
+        select distinct relationship
+        from TeacherStudent relationship
+        join fetch relationship.student student
+        left join fetch relationship.defaultSubject defaultSubject
+        where relationship.teacher.user.id = :teacherUserId
+          and relationship.active = :active
+          and student.deletedAt is null
+          and (
+            :subjectId is null
+            or exists (
+              select subjectLink.id
+              from TeacherStudentSubject subjectLink
+              where subjectLink.teacherStudent = relationship
+                and subjectLink.subject.id = :subjectId
+            )
+          )
+        order by student.name asc, relationship.createdAt asc
+        """,
+    )
+    fun findRosterByTeacherUserId(
+        @Param("teacherUserId") teacherUserId: UUID,
+        @Param("subjectId") subjectId: UUID?,
+        @Param("active") active: Boolean,
+    ): List<TeacherStudent>
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query(
         """
