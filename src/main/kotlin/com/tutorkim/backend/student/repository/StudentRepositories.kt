@@ -18,9 +18,15 @@ interface TeacherProfileRepository : JpaRepository<TeacherProfile, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select teacher from TeacherProfile teacher where teacher.id = :id")
     fun findLockedById(@Param("id") id: UUID): TeacherProfile?
+
+    fun findByUser_Id(userId: UUID): TeacherProfile?
 }
 
-interface StudentProfileRepository : JpaRepository<StudentProfile, UUID>
+interface StudentProfileRepository : JpaRepository<StudentProfile, UUID> {
+    fun findByUser_Id(userId: UUID): StudentProfile?
+
+    fun findByUser_IdAndDeletedAtIsNull(userId: UUID): StudentProfile?
+}
 
 interface TeacherStudentRepository : JpaRepository<TeacherStudent, UUID> {
     fun existsByTeacher_IdAndStudent_Id(teacherId: UUID, studentId: UUID): Boolean

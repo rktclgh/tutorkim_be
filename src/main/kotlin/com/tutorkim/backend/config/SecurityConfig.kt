@@ -6,6 +6,7 @@ import com.tutorkim.backend.common.dto.ApiError
 import com.tutorkim.backend.common.exception.ErrorCode
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.http.HttpMethod
 import org.springframework.http.MediaType
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.web.SecurityFilterChain
@@ -26,11 +27,31 @@ class SecurityConfig(
 					"/api/v1/auth/email/verify",
 					"/api/v1/auth/csrf",
 					"/actuator/health",
-				)
-				.permitAll()
-				.anyRequest()
-				.authenticated()
-		}
+					)
+					.permitAll()
+					.requestMatchers(
+						HttpMethod.POST,
+						"/api/v1/teacher/invite-codes",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.GET,
+						"/api/v1/teacher/invite-codes/active",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.DELETE,
+						"/api/v1/teacher/invite-codes/*",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.POST,
+						"/api/v1/student/teachers",
+					)
+					.hasRole("STUDENT")
+					.anyRequest()
+					.authenticated()
+			}
 		http.exceptionHandling { exceptions ->
 			exceptions
 				.authenticationEntryPoint { _, response, _ ->
