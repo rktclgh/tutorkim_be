@@ -7,6 +7,10 @@ import java.util.UUID
 
 interface SubjectRepository : JpaRepository<Subject, UUID> {
     fun findByIdInAndActiveTrue(ids: Collection<UUID>): List<Subject>
+
+    fun findByActiveTrueOrderByNameAsc(): List<Subject>
+
+    fun findByIdAndActiveTrue(id: UUID): Subject?
 }
 
 interface TeacherSubjectRepository : JpaRepository<TeacherSubject, UUID> {

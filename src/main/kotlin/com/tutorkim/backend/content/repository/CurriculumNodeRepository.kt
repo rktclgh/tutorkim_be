@@ -8,4 +8,6 @@ interface CurriculumNodeRepository : JpaRepository<CurriculumNode, UUID> {
 	fun findBySubjectIdAndDepthOrderByNameAsc(subjectId: UUID, depth: Short): List<CurriculumNode>
 
 	fun findByParentIdOrderByNameAsc(parentId: UUID?): List<CurriculumNode>
+
+	fun findBySubjectIdAndSystemTrueOrderByDepthAscNameAsc(subjectId: UUID): List<CurriculumNode>
 }
