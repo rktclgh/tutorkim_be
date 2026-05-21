@@ -198,6 +198,118 @@ class TeacherInviteCodeControllerIntegrationTest @Autowired constructor(
         }
     }
 
+    @Test
+    fun `teacher can deactivate an active student relationship`() {
+        val fixture = createFixture(defaultSubject = true)
+        val relationship = connectTeacherAndStudent(fixture, "RMV${System.nanoTime().toString().takeLast(5)}")
+
+        mockMvc.delete("/api/v1/students/${fixture.studentProfile.id}/teacher-relationship") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isNoContent() }
+        }
+
+        val savedRelationship = teacherStudentRepository.findById(relationship.id!!).orElseThrow()
+        assertThat(savedRelationship.active).isFalse()
+    }
+
+    @Test
+    fun `student role cannot deactivate teacher relationship`() {
+        val fixture = createFixture(defaultSubject = true)
+        connectTeacherAndStudent(fixture, "SDR${System.nanoTime().toString().takeLast(5)}")
+
+        mockMvc.delete("/api/v1/students/${fixture.studentProfile.id}/teacher-relationship") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.code") { value("FORBIDDEN") }
+        }
+    }
+
+    @Test
+    fun `teacher cannot deactivate another teacher student relationship`() {
+        val fixture = createFixture(defaultSubject = true)
+        connectTeacherAndStudent(fixture, "OTH${System.nanoTime().toString().takeLast(5)}")
+        val otherTeacher = createFixture()
+
+        mockMvc.delete("/api/v1/students/${fixture.studentProfile.id}/teacher-relationship") {
+            with(user(otherTeacher.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+            jsonPath("$.error.message") { value("활성 학생 관계를 찾을 수 없습니다.") }
+        }
+    }
+
+    @Test
+    fun `student can reconnect to teacher after teacher deactivated the relationship`() {
+        val fixture = createFixture(defaultSubject = true)
+        val firstRelationship = connectTeacherAndStudent(fixture, "REC${System.nanoTime().toString().takeLast(5)}")
+        firstRelationship.active = false
+        teacherStudentRepository.save(firstRelationship)
+        val inviteCode = teacherInviteCodeService.createInviteCode(
+            teacherId = fixture.teacherProfile.id!!,
+            code = "REJ${System.nanoTime().toString().takeLast(5)}",
+            expiresAt = Instant.now().plusSeconds(86_400),
+        )
+        val body = objectMapper.writeValueAsString(mapOf("inviteCode" to inviteCode.code))
+
+        mockMvc.post("/api/v1/student/teachers") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = body
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.id") { value(firstRelationship.id!!.toString()) }
+            jsonPath("$.data.active") { value(true) }
+        }
+
+        val relationships = teacherStudentRepository.findAll().filter {
+            it.teacher.id == fixture.teacherProfile.id && it.student.id == fixture.studentProfile.id
+        }
+        assertThat(relationships).hasSize(1)
+        assertThat(relationships.single().active).isTrue()
+        assertThat(teacherInviteCodeRepository.findById(inviteCode.id!!).orElseThrow().status)
+            .isEqualTo(InviteCodeStatus.REVOKED)
+    }
+
+    @Test
+    fun `student cannot reconnect while the relationship is already active`() {
+        val fixture = createFixture(defaultSubject = true)
+        connectTeacherAndStudent(fixture, "ACT${System.nanoTime().toString().takeLast(5)}")
+        val inviteCode = teacherInviteCodeService.createInviteCode(
+            teacherId = fixture.teacherProfile.id!!,
+            code = "ACR${System.nanoTime().toString().takeLast(5)}",
+            expiresAt = Instant.now().plusSeconds(86_400),
+        )
+        val body = objectMapper.writeValueAsString(mapOf("inviteCode" to inviteCode.code))
+
+        mockMvc.post("/api/v1/student/teachers") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = body
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.error.code") { value("CONFLICT") }
+            jsonPath("$.error.message") { value("이미 연결된 선생님입니다.") }
+        }
+    }
+
+    private fun connectTeacherAndStudent(fixture: Fixture, code: String) =
+        teacherInviteCodeService.consumeInviteCode(
+            code = teacherInviteCodeService.createInviteCode(
+                teacherId = fixture.teacherProfile.id!!,
+                code = code,
+                expiresAt = Instant.now().plusSeconds(86_400),
+            ).code,
+            studentId = fixture.studentProfile.id!!,
+        )
+
     private fun createFixture(defaultSubject: Boolean = false): Fixture {
         val suffix = System.nanoTime()
         val teacherUser = userRepository.save(

@@ -30,6 +30,35 @@ interface StudentProfileRepository : JpaRepository<StudentProfile, UUID> {
 
 interface TeacherStudentRepository : JpaRepository<TeacherStudent, UUID> {
     fun existsByTeacher_IdAndStudent_Id(teacherId: UUID, studentId: UUID): Boolean
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query(
+        """
+        select relationship
+        from TeacherStudent relationship
+        where relationship.teacher.id = :teacherId
+          and relationship.student.id = :studentId
+        """,
+    )
+    fun findByTeacherIdAndStudentIdForUpdate(
+        @Param("teacherId") teacherId: UUID,
+        @Param("studentId") studentId: UUID,
+    ): TeacherStudent?
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query(
+        """
+        select relationship
+        from TeacherStudent relationship
+        where relationship.teacher.user.id = :teacherUserId
+          and relationship.student.id = :studentId
+          and relationship.active = true
+        """,
+    )
+    fun findActiveByTeacherUserIdAndStudentIdForUpdate(
+        @Param("teacherUserId") teacherUserId: UUID,
+        @Param("studentId") studentId: UUID,
+    ): TeacherStudent?
 }
 
 interface TeacherInviteCodeRepository : JpaRepository<TeacherInviteCode, UUID> {

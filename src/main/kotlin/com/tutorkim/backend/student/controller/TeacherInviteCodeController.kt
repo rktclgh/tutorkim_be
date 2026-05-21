@@ -11,6 +11,7 @@ import com.tutorkim.backend.student.service.InviteCodeNotConsumableException
 import com.tutorkim.backend.student.service.TeacherDefaultSubjectNotUniqueException
 import com.tutorkim.backend.student.service.TeacherInviteCodeService
 import com.tutorkim.backend.student.service.TeacherStudentAlreadyExistsException
+import com.tutorkim.backend.student.service.TeacherStudentRelationshipNotFoundException
 import jakarta.validation.Valid
 import org.springframework.http.ResponseEntity
 import org.springframework.security.core.Authentication
@@ -85,6 +86,23 @@ class TeacherInviteCodeController(
         }
 
         return TeacherStudentRelationshipResponse.from(relationship)
+    }
+
+    @DeleteMapping("students/{studentId}/teacher-relationship")
+    fun deactivateTeacherStudentRelationship(
+        authentication: Authentication,
+        @PathVariable studentId: UUID,
+    ): ResponseEntity<Void> {
+        try {
+            teacherInviteCodeService.deactivateRelationshipForTeacherUser(
+                teacherUserId = currentUserId(authentication),
+                studentId = studentId,
+            )
+        } catch (exception: TeacherStudentRelationshipNotFoundException) {
+            throw ApiException(ErrorCode.NOT_FOUND, "활성 학생 관계를 찾을 수 없습니다.", cause = exception)
+        }
+
+        return ResponseEntity.noContent().build()
     }
 
     private fun currentUserId(authentication: Authentication): UUID =
