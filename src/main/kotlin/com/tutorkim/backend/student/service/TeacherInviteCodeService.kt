@@ -1,5 +1,7 @@
 package com.tutorkim.backend.student.service
 
+import com.tutorkim.backend.common.exception.ApiException
+import com.tutorkim.backend.common.exception.ErrorCode
 import com.tutorkim.backend.student.entity.InviteCodeStatus
 import com.tutorkim.backend.student.entity.TeacherInviteCode
 import com.tutorkim.backend.student.entity.TeacherStudent
@@ -10,6 +12,7 @@ import com.tutorkim.backend.student.repository.TeacherProfileRepository
 import com.tutorkim.backend.student.repository.TeacherStudentRepository
 import com.tutorkim.backend.student.repository.TeacherStudentSubjectRepository
 import com.tutorkim.backend.subject.repository.TeacherSubjectRepository
+import org.hibernate.Hibernate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.security.SecureRandom
@@ -73,6 +76,16 @@ class TeacherInviteCodeService(
         )
     }
 
+    @Transactional
+    fun createInviteCodeForTeacherUser(
+        teacherUserId: UUID,
+        expiresIn: Duration = Duration.ofHours(24),
+        clock: Clock = Clock.systemUTC(),
+    ): TeacherInviteCode {
+        val teacher = findTeacherProfileByUserId(teacherUserId)
+        return createInviteCode(teacher.id!!, expiresIn, clock)
+    }
+
     @Transactional(readOnly = true)
     fun findActiveCode(teacherId: UUID, clock: Clock = Clock.systemUTC()): TeacherInviteCode? =
         teacherInviteCodeRepository.findFirstByTeacher_IdAndStatusAndExpiresAtAfterOrderByCreatedAtDesc(
@@ -81,6 +94,15 @@ class TeacherInviteCodeService(
             clock.instant(),
         )
 
+    @Transactional(readOnly = true)
+    fun findActiveCodeForTeacherUser(
+        teacherUserId: UUID,
+        clock: Clock = Clock.systemUTC(),
+    ): TeacherInviteCode? {
+        val teacher = findTeacherProfileByUserId(teacherUserId)
+        return findActiveCode(teacher.id!!, clock)
+    }
+
     @Transactional
     fun revokeInviteCode(teacherId: UUID, inviteCodeId: UUID): TeacherInviteCode {
         val inviteCode = teacherInviteCodeRepository.findByTeacher_IdAndId(teacherId, inviteCodeId)
@@ -88,6 +110,15 @@ class TeacherInviteCodeService(
 
         inviteCode.revoke()
         return inviteCode
+    }
+
+    @Transactional
+    fun revokeInviteCodeForTeacherUser(
+        teacherUserId: UUID,
+        inviteCodeId: UUID,
+    ): TeacherInviteCode {
+        val teacher = findTeacherProfileByUserId(teacherUserId)
+        return revokeInviteCode(teacher.id!!, inviteCodeId)
     }
 
     @Transactional
@@ -136,9 +167,28 @@ class TeacherInviteCodeService(
             )
         }
 
+        Hibernate.initialize(relationship.teacher)
+        Hibernate.initialize(relationship.student)
+        Hibernate.initialize(relationship.defaultSubject)
         inviteCode.revoke()
         return relationship
     }
+
+    @Transactional
+    fun consumeInviteCodeForStudentUser(
+        code: String,
+        studentUserId: UUID,
+        clock: Clock = Clock.systemUTC(),
+    ): TeacherStudent {
+        val student = studentProfileRepository.findByUser_IdAndDeletedAtIsNull(studentUserId)
+            ?: throw ApiException(ErrorCode.FORBIDDEN, "학생 프로필이 필요합니다.")
+
+        return consumeInviteCode(code, student.id!!, clock)
+    }
+
+    private fun findTeacherProfileByUserId(teacherUserId: UUID) =
+        teacherProfileRepository.findByUser_Id(teacherUserId)
+            ?: throw ApiException(ErrorCode.FORBIDDEN, "선생님 프로필이 필요합니다.")
 
     private fun generateCode(): String =
         buildString {
