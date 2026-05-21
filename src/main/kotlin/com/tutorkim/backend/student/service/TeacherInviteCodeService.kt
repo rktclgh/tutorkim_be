@@ -11,6 +11,7 @@ import com.tutorkim.backend.student.repository.TeacherInviteCodeRepository
 import com.tutorkim.backend.student.repository.TeacherProfileRepository
 import com.tutorkim.backend.student.repository.TeacherStudentRepository
 import com.tutorkim.backend.student.repository.TeacherStudentSubjectRepository
+import com.tutorkim.backend.subject.entity.Subject
 import com.tutorkim.backend.subject.repository.TeacherSubjectRepository
 import org.hibernate.Hibernate
 import org.springframework.stereotype.Service
@@ -26,6 +27,8 @@ class InviteCodeNotConsumableException(message: String) : RuntimeException(messa
 class TeacherStudentAlreadyExistsException(message: String) : RuntimeException(message)
 
 class TeacherDefaultSubjectNotUniqueException(message: String) : RuntimeException(message)
+
+class TeacherStudentRelationshipNotFoundException(message: String) : RuntimeException(message)
 
 @Service
 class TeacherInviteCodeService(
@@ -138,15 +141,26 @@ class TeacherInviteCodeService(
         val student = studentProfileRepository.findById(studentId)
             .orElseThrow { IllegalArgumentException("Student profile not found: $studentId") }
 
-        if (teacherStudentRepository.existsByTeacher_IdAndStudent_Id(teacher.id!!, student.id!!)) {
-            throw TeacherStudentAlreadyExistsException("Teacher-student relationship already exists.")
+        val existingRelationship = teacherStudentRepository.findByTeacherIdAndStudentIdForUpdate(
+            teacherId = teacher.id!!,
+            studentId = student.id!!,
+        )
+        if (existingRelationship != null) {
+            if (existingRelationship.active) {
+                throw TeacherStudentAlreadyExistsException("Teacher-student relationship already exists.")
+            }
+
+            val defaultSubject = teacherDefaultSubject(teacher.id!!)
+            existingRelationship.defaultSubject = defaultSubject
+            existingRelationship.active = true
+            syncPrimarySubject(existingRelationship, defaultSubject)
+
+            initializeRelationshipForResponse(existingRelationship)
+            inviteCode.revoke()
+            return existingRelationship
         }
 
-        val defaultSubjects = teacherSubjectRepository.findByTeacher_IdAndDefaultTrue(teacher.id!!)
-        if (defaultSubjects.size > 1) {
-            throw TeacherDefaultSubjectNotUniqueException("Teacher has multiple default subjects.")
-        }
-        val defaultSubject = defaultSubjects.singleOrNull()?.subject
+        val defaultSubject = teacherDefaultSubject(teacher.id!!)
 
         val relationship = teacherStudentRepository.save(
             TeacherStudent(
@@ -167,9 +181,7 @@ class TeacherInviteCodeService(
             )
         }
 
-        Hibernate.initialize(relationship.teacher)
-        Hibernate.initialize(relationship.student)
-        Hibernate.initialize(relationship.defaultSubject)
+        initializeRelationshipForResponse(relationship)
         inviteCode.revoke()
         return relationship
     }
@@ -186,9 +198,56 @@ class TeacherInviteCodeService(
         return consumeInviteCode(code, student.id!!, clock)
     }
 
+    @Transactional
+    fun deactivateRelationshipForTeacherUser(
+        teacherUserId: UUID,
+        studentId: UUID,
+    ): TeacherStudent {
+        val relationship = teacherStudentRepository.findActiveByTeacherUserIdAndStudentIdForUpdate(
+            teacherUserId = teacherUserId,
+            studentId = studentId,
+        ) ?: throw TeacherStudentRelationshipNotFoundException("Active teacher-student relationship not found.")
+
+        relationship.active = false
+        return relationship
+    }
+
     private fun findTeacherProfileByUserId(teacherUserId: UUID) =
         teacherProfileRepository.findByUser_Id(teacherUserId)
             ?: throw ApiException(ErrorCode.FORBIDDEN, "선생님 프로필이 필요합니다.")
+
+    private fun teacherDefaultSubject(teacherId: UUID) =
+        teacherSubjectRepository.findByTeacher_IdAndDefaultTrue(teacherId).also { defaultSubjects ->
+            if (defaultSubjects.size > 1) {
+                throw TeacherDefaultSubjectNotUniqueException("Teacher has multiple default subjects.")
+            }
+        }.singleOrNull()?.subject
+
+    private fun syncPrimarySubject(
+        relationship: TeacherStudent,
+        defaultSubject: Subject?,
+    ) {
+        val currentSubjects = teacherStudentSubjectRepository.findByTeacherStudent_Id(relationship.id!!)
+        currentSubjects.forEach { subject ->
+            subject.primary = defaultSubject != null && subject.subject.id == defaultSubject.id
+        }
+
+        if (defaultSubject != null && currentSubjects.none { it.subject.id == defaultSubject.id }) {
+            teacherStudentSubjectRepository.save(
+                TeacherStudentSubject(
+                    teacherStudent = relationship,
+                    subject = defaultSubject,
+                    primary = true,
+                ),
+            )
+        }
+    }
+
+    private fun initializeRelationshipForResponse(relationship: TeacherStudent) {
+        Hibernate.initialize(relationship.teacher)
+        Hibernate.initialize(relationship.student)
+        Hibernate.initialize(relationship.defaultSubject)
+    }
 
     private fun generateCode(): String =
         buildString {

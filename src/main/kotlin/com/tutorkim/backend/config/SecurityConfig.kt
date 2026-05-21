@@ -49,6 +49,11 @@ class SecurityConfig(
 						"/api/v1/student/teachers",
 					)
 					.hasRole("STUDENT")
+					.requestMatchers(
+						HttpMethod.DELETE,
+						"/api/v1/students/*/teacher-relationship",
+					)
+					.hasRole("TEACHER")
 					.anyRequest()
 					.authenticated()
 			}
