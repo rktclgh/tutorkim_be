@@ -130,6 +130,39 @@ class LessonCompletionControllerIntegrationTest @Autowired constructor(
     }
 
     @Test
+    fun `completion updates progress without changing completed lesson end time`() {
+        val fixture = createFixture()
+        val relationship = createRelationship(fixture)
+        val fixedActualEndAt = Instant.parse("2026-05-18T12:05:00Z")
+        val session = createLessonSession(relationship, fixture.math, LessonStatus.COMPLETED).also {
+            it.actualStartAt = Instant.parse("2026-05-18T10:00:00Z")
+            it.actualEndAt = fixedActualEndAt
+            lessonSessionRepository.save(it)
+        }
+        val body = completeRequestBody(
+            "currentProgress" to "완료 후 수정된 현재 진도",
+            "lessonMemo" to "완료 후 메모만 보정",
+        )
+
+        mockMvc.patch("/api/v1/lesson-sessions/${session.id}/complete") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = body
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.status") { value("COMPLETED") }
+            jsonPath("$.data.currentProgress") { value("완료 후 수정된 현재 진도") }
+            jsonPath("$.data.lessonMemo") { value("완료 후 메모만 보정") }
+            jsonPath("$.data.actualEndAt") { value("2026-05-18T12:05:00Z") }
+        }
+
+        val savedSession = lessonSessionRepository.findById(session.id!!).orElseThrow()
+        assertThat(savedSession.actualEndAt).isEqualTo(fixedActualEndAt)
+        assertThat(savedSession.currentProgress).isEqualTo("완료 후 수정된 현재 진도")
+    }
+
+    @Test
     fun `student role cannot read or complete lesson sessions`() {
         val fixture = createFixture()
         val relationship = createRelationship(fixture)

@@ -87,9 +87,11 @@ class LessonSessionService(
         session.understandingLevel = command.understandingLevel
         session.assignmentPerformance = command.assignmentPerformance
         session.lessonMemo = command.lessonMemo
-        session.status = LessonStatus.COMPLETED
-        session.actualStartAt = session.actualStartAt ?: session.scheduledStartAt
-        session.actualEndAt = now
+        if (session.status != LessonStatus.COMPLETED) {
+            session.status = LessonStatus.COMPLETED
+            session.actualStartAt = session.actualStartAt ?: session.scheduledStartAt
+            session.actualEndAt = now
+        }
         session.updatedAt = now
 
         return LessonSessionView(
