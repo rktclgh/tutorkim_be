@@ -77,9 +77,11 @@ interface TeacherStudentRepository : JpaRepository<TeacherStudent, UUID> {
         """
         select relationship
         from TeacherStudent relationship
+        join relationship.student student
         where relationship.teacher.user.id = :teacherUserId
           and relationship.student.id = :studentId
           and relationship.active = true
+          and student.deletedAt is null
         """,
     )
     fun findActiveByTeacherUserIdAndStudentIdForUpdate(
@@ -131,4 +133,6 @@ interface TeacherInviteCodeRepository : JpaRepository<TeacherInviteCode, UUID> {
 
 interface TeacherStudentSubjectRepository : JpaRepository<TeacherStudentSubject, UUID> {
     fun findByTeacherStudent_Id(teacherStudentId: UUID): List<TeacherStudentSubject>
+
+    fun existsByTeacherStudent_IdAndSubject_Id(teacherStudentId: UUID, subjectId: UUID): Boolean
 }
