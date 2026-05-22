@@ -28,7 +28,10 @@ class LessonTimetableDateOrderException(message: String) : LessonTimetableRangeE
 
 class LessonTimetableRangeTooLongException(message: String) : LessonTimetableRangeException(message)
 
-class LessonTimezoneException(message: String) : RuntimeException(message)
+class LessonTimezoneException(
+    message: String,
+    cause: Throwable? = null,
+) : RuntimeException(message, cause)
 
 data class LessonScheduleView(
     val schedule: LessonSchedule,
@@ -186,7 +189,7 @@ class LessonScheduleService(
         try {
             ZoneId.of(timezone)
         } catch (exception: DateTimeException) {
-            throw LessonTimezoneException("Lesson schedule timezone is invalid.")
+            throw LessonTimezoneException("Lesson schedule timezone is invalid.", exception)
         }
     }
 }

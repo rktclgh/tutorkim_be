@@ -28,6 +28,7 @@ import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import java.time.Instant
+import java.util.UUID
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -131,6 +132,7 @@ class LessonScheduleControllerIntegrationTest @Autowired constructor(
     fun `teacher can create lesson session and read it from the home timetable`() {
         val fixture = createFixture()
         createRelationship(fixture, active = true)
+        val initialSessionCount = lessonSessionRepository.count()
         val body = objectMapper.writeValueAsString(
             mapOf(
                 "studentId" to fixture.studentProfile.id!!.toString(),
@@ -168,7 +170,7 @@ class LessonScheduleControllerIntegrationTest @Autowired constructor(
             jsonPath("$.data[0].lessons[0].subjectId") { value(fixture.math.id!!.toString()) }
         }
 
-        assertThat(lessonSessionRepository.findAll()).hasSize(1)
+        assertThat(lessonSessionRepository.count()).isEqualTo(initialSessionCount + 1)
     }
 
     @Test
@@ -209,6 +211,15 @@ class LessonScheduleControllerIntegrationTest @Autowired constructor(
             with(csrf())
             contentType = MediaType.APPLICATION_JSON
             content = sessionBody
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.code") { value("FORBIDDEN") }
+        }
+
+        mockMvc.get("/api/v1/home/timetable") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            param("from", "2026-05-18")
+            param("to", "2026-05-24")
         }.andExpect {
             status { isForbidden() }
             jsonPath("$.error.code") { value("FORBIDDEN") }
@@ -396,7 +407,7 @@ class LessonScheduleControllerIntegrationTest @Autowired constructor(
     }
 
     private fun createFixture(): Fixture {
-        val suffix = System.nanoTime()
+        val suffix = UUID.randomUUID().toString()
         val teacherUser = userRepository.save(
             User(name = "김선생", role = UserRole.TEACHER, email = "lesson-teacher-$suffix@example.com"),
         )
