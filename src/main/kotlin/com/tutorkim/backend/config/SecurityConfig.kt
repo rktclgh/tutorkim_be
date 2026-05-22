@@ -76,6 +76,16 @@ class SecurityConfig(
 					.hasRole("TEACHER")
 					.requestMatchers(
 						HttpMethod.GET,
+						"/api/v1/lesson-sessions/*",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.PATCH,
+						"/api/v1/lesson-sessions/*/complete",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.GET,
 						"/api/v1/home/timetable",
 					)
 					.hasRole("TEACHER")
