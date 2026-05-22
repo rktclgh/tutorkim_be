@@ -22,7 +22,11 @@ class LessonTimeRangeException(message: String) : RuntimeException(message)
 
 class LessonSubjectNotFoundException(message: String) : RuntimeException(message)
 
-class LessonTimetableRangeException(message: String) : RuntimeException(message)
+open class LessonTimetableRangeException(message: String) : RuntimeException(message)
+
+class LessonTimetableDateOrderException(message: String) : LessonTimetableRangeException(message)
+
+class LessonTimetableRangeTooLongException(message: String) : LessonTimetableRangeException(message)
 
 class LessonTimezoneException(message: String) : RuntimeException(message)
 
@@ -115,10 +119,10 @@ class LessonScheduleService(
         to: LocalDate,
     ): List<HomeTimetableDayView> {
         if (to.isBefore(from)) {
-            throw LessonTimetableRangeException("Timetable end date must not be before start date.")
+            throw LessonTimetableDateOrderException("Timetable end date must not be before start date.")
         }
         if (ChronoUnit.DAYS.between(from, to) + 1 > maxTimetableDays) {
-            throw LessonTimetableRangeException("Timetable range must be at most 31 days.")
+            throw LessonTimetableRangeTooLongException("Timetable range must be at most 31 days.")
         }
 
         val fromInclusive = from.atStartOfDay(timetableZone).toInstant()
@@ -149,7 +153,6 @@ class LessonScheduleService(
             .map { (date, lessons) ->
                 HomeTimetableDayView(date = date, lessons = lessons)
             }
-            .sortedBy { it.date }
     }
 
     private fun findActiveRelationship(

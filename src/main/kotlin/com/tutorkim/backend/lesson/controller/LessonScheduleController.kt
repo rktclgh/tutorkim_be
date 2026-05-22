@@ -12,7 +12,8 @@ import com.tutorkim.backend.lesson.service.LessonScheduleService
 import com.tutorkim.backend.lesson.service.LessonSubjectNotFoundException
 import com.tutorkim.backend.lesson.service.LessonTimeRangeException
 import com.tutorkim.backend.lesson.service.LessonTimezoneException
-import com.tutorkim.backend.lesson.service.LessonTimetableRangeException
+import com.tutorkim.backend.lesson.service.LessonTimetableDateOrderException
+import com.tutorkim.backend.lesson.service.LessonTimetableRangeTooLongException
 import com.tutorkim.backend.student.service.TeacherStudentRelationshipNotFoundException
 import jakarta.validation.Valid
 import org.springframework.security.core.Authentication
@@ -101,16 +102,10 @@ class LessonScheduleController(
                     },
                 )
             }
-        } catch (exception: LessonTimetableRangeException) {
-            throw ApiException(
-                ErrorCode.VALIDATION_ERROR,
-                if (to.isBefore(from)) {
-                    "조회 종료일은 시작일 이후여야 합니다."
-                } else {
-                    "시간표 조회 범위는 최대 31일입니다."
-                },
-                cause = exception,
-            )
+        } catch (exception: LessonTimetableDateOrderException) {
+            throw ApiException(ErrorCode.VALIDATION_ERROR, "조회 종료일은 시작일 이후여야 합니다.", cause = exception)
+        } catch (exception: LessonTimetableRangeTooLongException) {
+            throw ApiException(ErrorCode.VALIDATION_ERROR, "시간표 조회 범위는 최대 31일입니다.", cause = exception)
         }
 
     private fun currentUserId(authentication: Authentication): UUID =
