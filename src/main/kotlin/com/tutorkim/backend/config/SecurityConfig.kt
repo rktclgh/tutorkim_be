@@ -64,6 +64,21 @@ class SecurityConfig(
 						"/api/v1/students/*/subjects",
 					)
 					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.POST,
+						"/api/v1/lesson-schedules",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.POST,
+						"/api/v1/lesson-sessions",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.GET,
+						"/api/v1/home/timetable",
+					)
+					.hasRole("TEACHER")
 					.anyRequest()
 					.authenticated()
 			}
