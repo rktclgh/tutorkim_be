@@ -8,17 +8,43 @@ import com.tutorkim.backend.problem.entity.ProblemBlock
 import com.tutorkim.backend.problem.entity.ProblemExplanation
 import com.tutorkim.backend.problem.entity.ProblemUploadBatch
 import com.tutorkim.backend.problem.entity.ProblemUploadFile
+import jakarta.persistence.LockModeType
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import java.util.UUID
 
 interface ProblemUploadBatchRepository : JpaRepository<ProblemUploadBatch, UUID> {
 	fun findByParseStatus(parseStatus: ParseStatus): List<ProblemUploadBatch>
+
+	fun findByIdAndTeacherId(
+		id: UUID,
+		teacherId: UUID,
+	): ProblemUploadBatch?
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query(
+		"""
+		select batch
+		from ProblemUploadBatch batch
+		where batch.id = :id
+		  and batch.teacherId = :teacherId
+		""",
+	)
+	fun findByIdAndTeacherIdForUpdate(
+		@Param("id") id: UUID,
+		@Param("teacherId") teacherId: UUID,
+	): ProblemUploadBatch?
 }
 
 interface ProblemUploadFileRepository : JpaRepository<ProblemUploadFile, UUID> {
 	fun findByBatchIdOrderByCreatedAtAsc(batchId: UUID): List<ProblemUploadFile>
+
+	fun existsByBatchIdAndFileAssetId(
+		batchId: UUID,
+		fileAssetId: UUID,
+	): Boolean
 }
 
 interface DocumentIngestionStageRunRepository : JpaRepository<DocumentIngestionStageRun, UUID> {

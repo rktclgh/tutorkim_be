@@ -97,6 +97,11 @@ begin
 			on document_ingestion_stage_runs (batch_id, stage_type)';
 	end if;
 
+	if to_regclass('public.problem_upload_files') is not null then
+		execute 'create unique index if not exists problem_upload_file_asset_unique
+			on problem_upload_files (batch_id, file_asset_id)';
+	end if;
+
 	if to_regclass('public.problem_upload_batches') is not null
 		and to_regclass('public.problem_upload_files') is not null
 		and to_regclass('public.document_ingestion_stage_runs') is not null

@@ -89,6 +89,31 @@ class SecurityConfig(
 						"/api/v1/home/timetable",
 					)
 					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.POST,
+						"/api/v1/files/upload-url",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.POST,
+						"/api/v1/problem-upload-batches",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.POST,
+						"/api/v1/problem-upload-batches/*/files",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.POST,
+						"/api/v1/problem-upload-batches/*/parse",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.GET,
+						"/api/v1/problem-upload-batches/*",
+					)
+					.hasRole("TEACHER")
 					.anyRequest()
 					.authenticated()
 			}
