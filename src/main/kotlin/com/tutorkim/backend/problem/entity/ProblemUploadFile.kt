@@ -8,13 +8,19 @@ import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
+import jakarta.persistence.UniqueConstraint
 import org.hibernate.annotations.JdbcType
 import org.hibernate.dialect.PostgreSQLEnumJdbcType
 import java.time.Instant
 import java.util.UUID
 
 @Entity
-@Table(name = "problem_upload_files")
+@Table(
+	name = "problem_upload_files",
+	uniqueConstraints = [
+		UniqueConstraint(name = "problem_upload_file_asset_unique", columnNames = ["batch_id", "file_asset_id"]),
+	],
+)
 class ProblemUploadFile(
 	@Id
 	@GeneratedValue(strategy = GenerationType.UUID)

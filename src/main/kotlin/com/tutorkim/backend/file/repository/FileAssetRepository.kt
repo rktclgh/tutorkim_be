@@ -6,4 +6,9 @@ import java.util.UUID
 
 interface FileAssetRepository : JpaRepository<FileAsset, UUID> {
 	fun findByStorageKey(storageKey: String): FileAsset?
+
+	fun findByIdAndOwnerUserId(
+		id: UUID,
+		ownerUserId: UUID,
+	): FileAsset?
 }
