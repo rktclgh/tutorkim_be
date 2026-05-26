@@ -5,6 +5,7 @@ import com.tutorkim.backend.file.repository.FileAssetRepository
 import com.tutorkim.backend.identity.entity.User
 import com.tutorkim.backend.identity.entity.UserRole
 import com.tutorkim.backend.identity.repository.UserRepository
+import com.tutorkim.backend.problem.entity.IngestionStageType
 import com.tutorkim.backend.problem.entity.ParseStatus
 import com.tutorkim.backend.problem.repository.DocumentIngestionStageRunRepository
 import com.tutorkim.backend.problem.repository.ProblemUploadBatchRepository
@@ -505,6 +506,184 @@ class ProblemUploadBatchControllerIntegrationTest @Autowired constructor(
         }
     }
 
+    @Test
+    fun `teacher can retry a failed problem upload batch with target stages`() {
+        val fixture = createTeacherFixture()
+        val subject = createSubject()
+        val fileAssetId = requestFileUpload(fixture.teacherUser.id!!)
+        val batchId = createUploadBatch(fixture.teacherUser.id!!)
+        attachFile(
+            teacherUserId = fixture.teacherUser.id!!,
+            batchId = batchId,
+            fileAssetId = fileAssetId,
+        )
+        startParsing(
+            teacherUserId = fixture.teacherUser.id!!,
+            batchId = batchId,
+            subjectId = subject.id!!,
+        )
+        uploadBatchRepository.saveAndFlush(
+            uploadBatchRepository.findById(batchId).orElseThrow().apply {
+                parseStatus = ParseStatus.FAILED
+                parseError = "OCR timeout"
+                retryCount = 1
+            },
+        )
+
+        mockMvc.post("/api/v1/problem-upload-batches/$batchId/retry") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = retryBody(
+                targetStages = listOf("OCR", "ANSWER_MAPPING"),
+                temporaryProblemIds = listOf("tmp-3"),
+                retryOnlyLowConfidenceItems = true,
+            )
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.batchId") { value(batchId.toString()) }
+            jsonPath("$.data.parseStatus") { value("PENDING") }
+            jsonPath("$.data.files.length()") { value(1) }
+            jsonPath("$.data.stageRuns.length()") { value(3) }
+        }
+
+        val savedBatch = uploadBatchRepository.findById(batchId).orElseThrow()
+        assertThat(savedBatch.parseStatus).isEqualTo(ParseStatus.PENDING)
+        assertThat(savedBatch.parseError).isNull()
+        assertThat(savedBatch.retryCount).isEqualTo(2)
+        assertThat(stageRunRepository.findByBatchIdOrderByCreatedAtAsc(batchId).map { it.stageType })
+            .containsExactly(
+                IngestionStageType.OCR,
+                IngestionStageType.OCR,
+                IngestionStageType.ANSWER_MAPPING,
+            )
+    }
+
+    @Test
+    fun `retry rejects active batches and broad review retries`() {
+        val fixture = createTeacherFixture()
+        val subject = createSubject()
+        val fileAssetId = requestFileUpload(fixture.teacherUser.id!!)
+        val batchId = createUploadBatch(fixture.teacherUser.id!!)
+        attachFile(
+            teacherUserId = fixture.teacherUser.id!!,
+            batchId = batchId,
+            fileAssetId = fileAssetId,
+        )
+        startParsing(
+            teacherUserId = fixture.teacherUser.id!!,
+            batchId = batchId,
+            subjectId = subject.id!!,
+        )
+
+        mockMvc.post("/api/v1/problem-upload-batches/$batchId/retry") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = retryBody(targetStages = listOf("OCR"))
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.error.code") { value("CONFLICT") }
+            jsonPath("$.error.message") { value("현재 배치 상태에서는 재파싱을 요청할 수 없습니다.") }
+        }
+
+        uploadBatchRepository.saveAndFlush(
+            uploadBatchRepository.findById(batchId).orElseThrow().apply {
+                parseStatus = ParseStatus.NEEDS_REVIEW
+            },
+        )
+
+        mockMvc.post("/api/v1/problem-upload-batches/$batchId/retry") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = retryBody(targetStages = listOf("OCR"))
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.error.code") { value("CONFLICT") }
+            jsonPath("$.error.message") { value("검토 필요 배치는 낮은 신뢰도 항목 또는 임시 문제 단위로만 재파싱할 수 있습니다.") }
+        }
+    }
+
+    @Test
+    fun `retry rejects duplicate and oversized target stages`() {
+        val fixture = createTeacherFixture()
+        val subject = createSubject()
+        val fileAssetId = requestFileUpload(fixture.teacherUser.id!!)
+        val batchId = createUploadBatch(fixture.teacherUser.id!!)
+        attachFile(
+            teacherUserId = fixture.teacherUser.id!!,
+            batchId = batchId,
+            fileAssetId = fileAssetId,
+        )
+        startParsing(
+            teacherUserId = fixture.teacherUser.id!!,
+            batchId = batchId,
+            subjectId = subject.id!!,
+        )
+        uploadBatchRepository.saveAndFlush(
+            uploadBatchRepository.findById(batchId).orElseThrow().apply {
+                parseStatus = ParseStatus.FAILED
+            },
+        )
+
+        mockMvc.post("/api/v1/problem-upload-batches/$batchId/retry") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = retryBody(targetStages = listOf("OCR", "OCR"))
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("VALIDATION_ERROR") }
+            jsonPath("$.error.message") { value("재파싱 단계는 중복될 수 없습니다.") }
+        }
+
+        mockMvc.post("/api/v1/problem-upload-batches/$batchId/retry") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = retryBody(targetStages = List(IngestionStageType.entries.size + 1) { "OCR" })
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("VALIDATION_ERROR") }
+        }
+    }
+
+    @Test
+    fun `teacher cannot retry another teachers upload batch and student cannot retry`() {
+        val owner = createTeacherFixture(displayName = "소유 선생")
+        val other = createTeacherFixture(displayName = "다른 선생")
+        val studentUser = userRepository.save(
+            User(
+                email = "student-${UUID.randomUUID()}@example.com",
+                name = "학생",
+                role = UserRole.STUDENT,
+            ),
+        )
+        studentProfileRepository.save(StudentProfile(user = studentUser, name = "학생"))
+        val ownerBatchId = createUploadBatch(owner.teacherUser.id!!)
+
+        mockMvc.post("/api/v1/problem-upload-batches/$ownerBatchId/retry") {
+            with(user(other.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = retryBody(targetStages = listOf("OCR"))
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+        }
+
+        mockMvc.post("/api/v1/problem-upload-batches/$ownerBatchId/retry") {
+            with(user(studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = retryBody(targetStages = listOf("OCR"))
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.code") { value("FORBIDDEN") }
+        }
+    }
+
     private fun requestFileUpload(teacherUserId: UUID): UUID {
         val response = mockMvc.post("/api/v1/files/upload-url") {
             with(user(teacherUserId.toString()).roles("TEACHER"))
@@ -572,6 +751,19 @@ class ProblemUploadBatchControllerIntegrationTest @Autowired constructor(
                 "subjectId" to subjectId.toString(),
                 "pipelineVersion" to "semantic-first-v1",
                 "deterministicStages" to listOf("HERMES_VISUAL_SEMANTIC_REVIEW"),
+            ),
+        )
+
+    private fun retryBody(
+        targetStages: List<String>,
+        temporaryProblemIds: List<String> = emptyList(),
+        retryOnlyLowConfidenceItems: Boolean = false,
+    ): String =
+        objectMapper.writeValueAsString(
+            mapOf(
+                "targetStages" to targetStages,
+                "temporaryProblemIds" to temporaryProblemIds,
+                "retryOnlyLowConfidenceItems" to retryOnlyLowConfidenceItems,
             ),
         )
 

@@ -8,6 +8,7 @@ import com.tutorkim.backend.problem.dto.CreateProblemUploadBatchRequest
 import com.tutorkim.backend.problem.dto.DocumentIngestionStageRunResponse
 import com.tutorkim.backend.problem.dto.ProblemUploadBatchResponse
 import com.tutorkim.backend.problem.dto.ProblemUploadFileResponse
+import com.tutorkim.backend.problem.dto.RetryProblemUploadBatchRequest
 import com.tutorkim.backend.problem.dto.StartProblemParsingRequest
 import com.tutorkim.backend.problem.entity.DocumentIngestionStageRun
 import com.tutorkim.backend.problem.entity.IngestionStageType
@@ -130,6 +131,48 @@ class ProblemUploadBatchService(
         )
     }
 
+    @Transactional
+    fun retryParsing(
+        teacherUserId: UUID,
+        batchId: UUID,
+        request: RetryProblemUploadBatchRequest,
+    ): ProblemUploadBatchResponse {
+        val teacher = findTeacherProfile(teacherUserId)
+        val batch = findOwnedBatchForUpdate(batchId, teacher.id!!)
+        validateRetryRequest(batch, request)
+
+        val uploadFiles = uploadFileRepository.findByBatchIdOrderByCreatedAtAsc(batch.id!!)
+        if (uploadFiles.isEmpty()) {
+            throw ApiException(ErrorCode.CONFLICT, "재파싱을 시작하려면 업로드 파일이 필요합니다.")
+        }
+
+        val retriedBatch = ProblemUploadBatchRetryPolicy.retry(
+            batch = batch,
+            hasNarrowReviewScope = hasNarrowReviewScope(request),
+        )
+        val savedBatch = uploadBatchRepository.save(retriedBatch)
+        val retryStageRuns = request.targetStages.map { stageType ->
+            DocumentIngestionStageRun(
+                batchId = savedBatch.id!!,
+                stageType = stageType,
+                engineName = retryEngineName(stageType, savedBatch),
+                outputJson = mapOf(
+                    "retry" to true,
+                    "retryCount" to savedBatch.retryCount,
+                    "temporaryProblemIds" to request.temporaryProblemIds,
+                    "retryOnlyLowConfidenceItems" to request.retryOnlyLowConfidenceItems,
+                ),
+            )
+        }
+        stageRunRepository.saveAll(retryStageRuns)
+
+        return toResponse(
+            batch = savedBatch,
+            files = uploadFiles,
+            stageRuns = stageRunRepository.findByBatchIdOrderByCreatedAtAsc(savedBatch.id!!),
+        )
+    }
+
     @Transactional(readOnly = true)
     fun getBatch(
         teacherUserId: UUID,
@@ -160,6 +203,24 @@ class ProblemUploadBatchService(
         }
     }
 
+    private fun validateRetryRequest(
+        batch: ProblemUploadBatch,
+        request: RetryProblemUploadBatchRequest,
+    ) {
+        if (request.targetStages.distinct().size != request.targetStages.size) {
+            throw ApiException(ErrorCode.VALIDATION_ERROR, "재파싱 단계는 중복될 수 없습니다.")
+        }
+        if (batch.parseStatus != ParseStatus.FAILED && batch.parseStatus != ParseStatus.NEEDS_REVIEW) {
+            throw ApiException(ErrorCode.CONFLICT, "현재 배치 상태에서는 재파싱을 요청할 수 없습니다.")
+        }
+        if (batch.parseStatus == ParseStatus.NEEDS_REVIEW && !hasNarrowReviewScope(request)) {
+            throw ApiException(ErrorCode.CONFLICT, "검토 필요 배치는 낮은 신뢰도 항목 또는 임시 문제 단위로만 재파싱할 수 있습니다.")
+        }
+    }
+
+    private fun hasNarrowReviewScope(request: RetryProblemUploadBatchRequest): Boolean =
+        request.retryOnlyLowConfidenceItems || request.temporaryProblemIds.isNotEmpty()
+
     private fun engineName(
         stageType: IngestionStageType,
         request: StartProblemParsingRequest,
@@ -168,6 +229,17 @@ class ProblemUploadBatchService(
             return null
         }
         val model = request.hermesReview?.model?.takeIf { it.isNotBlank() } ?: "unknown"
+        return "hermes-agent-gateway:$model"
+    }
+
+    private fun retryEngineName(
+        stageType: IngestionStageType,
+        batch: ProblemUploadBatch,
+    ): String? {
+        if (!stageType.name.startsWith("HERMES_")) {
+            return null
+        }
+        val model = batch.parseModel?.takeIf { it.isNotBlank() } ?: "unknown"
         return "hermes-agent-gateway:$model"
     }
 

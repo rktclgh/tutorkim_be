@@ -7,6 +7,7 @@ import com.tutorkim.backend.problem.dto.AttachProblemUploadFileRequest
 import com.tutorkim.backend.problem.dto.CreateProblemUploadBatchRequest
 import com.tutorkim.backend.problem.dto.ProblemUploadBatchResponse
 import com.tutorkim.backend.problem.dto.ProblemUploadFileResponse
+import com.tutorkim.backend.problem.dto.RetryProblemUploadBatchRequest
 import com.tutorkim.backend.problem.dto.StartProblemParsingRequest
 import com.tutorkim.backend.problem.service.ProblemUploadBatchService
 import jakarta.validation.Valid
@@ -53,6 +54,18 @@ class ProblemUploadBatchController(
         @Valid @RequestBody request: StartProblemParsingRequest,
     ): ProblemUploadBatchResponse =
         problemUploadBatchService.startParsing(
+            teacherUserId = currentUserId(authentication),
+            batchId = batchId,
+            request = request,
+        )
+
+    @PostMapping("/problem-upload-batches/{batchId}/retry")
+    fun retryParsing(
+        authentication: Authentication,
+        @PathVariable batchId: UUID,
+        @Valid @RequestBody request: RetryProblemUploadBatchRequest,
+    ): ProblemUploadBatchResponse =
+        problemUploadBatchService.retryParsing(
             teacherUserId = currentUserId(authentication),
             batchId = batchId,
             request = request,

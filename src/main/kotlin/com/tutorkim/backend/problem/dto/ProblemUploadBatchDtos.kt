@@ -52,6 +52,17 @@ data class StartProblemParsingRequest(
     val hermesReview: HermesReviewRequest? = null,
 )
 
+data class RetryProblemUploadBatchRequest(
+    @field:NotEmpty
+    @field:Size(max = 10)
+    val targetStages: List<IngestionStageType>,
+
+    @field:Size(max = 100)
+    val temporaryProblemIds: List<@NotBlank @Size(max = 80) String> = emptyList(),
+
+    val retryOnlyLowConfidenceItems: Boolean = false,
+)
+
 data class HermesReviewRequest(
     @field:NotBlank
     val gateway: String,
