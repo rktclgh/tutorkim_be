@@ -42,11 +42,11 @@ class ProblemAnswerPolicyTest {
 	}
 
 	@Test
-	fun `multiple choice requires at least one unique choice from one to five`() {
+	fun `multiple choice requires at least two unique choices from one to five`() {
 		ProblemAnswerPolicy.validate(
 			ProblemAnswerSpec(
 				answerType = ProblemAnswerType.MULTIPLE_CHOICE,
-				choiceAnswers = listOf(2),
+				choiceAnswers = listOf(2, 5),
 				numericAnswer = null,
 				difficulty = 2,
 			),
@@ -57,6 +57,17 @@ class ProblemAnswerPolicyTest {
 				ProblemAnswerSpec(
 					answerType = ProblemAnswerType.MULTIPLE_CHOICE,
 					choiceAnswers = emptyList(),
+					numericAnswer = null,
+					difficulty = 2,
+				),
+			)
+		}
+
+		assertFailsWith<IllegalArgumentException> {
+			ProblemAnswerPolicy.validate(
+				ProblemAnswerSpec(
+					answerType = ProblemAnswerType.MULTIPLE_CHOICE,
+					choiceAnswers = listOf(2),
 					numericAnswer = null,
 					difficulty = 2,
 				),
