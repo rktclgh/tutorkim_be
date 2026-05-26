@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user
@@ -27,6 +28,10 @@ import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import java.util.UUID
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -168,6 +173,7 @@ class ProblemUploadBatchControllerIntegrationTest @Autowired constructor(
     @Test
     fun `file upload reservation rejects unsupported type oversized file and malformed principals`() {
         val fixture = createTeacherFixture()
+        val longFilename = "${"a".repeat(180)}.png"
 
         mockMvc.post("/api/v1/files/upload-url") {
             with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
@@ -218,6 +224,26 @@ class ProblemUploadBatchControllerIntegrationTest @Autowired constructor(
             status { isUnauthorized() }
             jsonPath("$.error.code") { value("UNAUTHORIZED") }
         }
+
+        val response = mockMvc.post("/api/v1/files/upload-url") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "filename" to longFilename,
+                    "contentType" to "image/png",
+                    "sizeBytes" to 1024,
+                ),
+            )
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.filename") { value(longFilename) }
+        }.andReturn().response.contentAsString
+
+        val storageKey = objectMapper.readTree(response).path("data").path("storageKey").asText()
+        val maxStorageKeyLength = "problem-upload/".length + 36 + 1 + 36 + 1 + 120
+        assertThat(storageKey.length).isLessThanOrEqualTo(maxStorageKeyLength)
     }
 
     @Test
@@ -330,6 +356,17 @@ class ProblemUploadBatchControllerIntegrationTest @Autowired constructor(
             with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
             with(csrf())
             contentType = MediaType.APPLICATION_JSON
+            content = hermesParseBodyWithoutReview(activeSubject.id!!)
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("VALIDATION_ERROR") }
+            jsonPath("$.error.message") { value("HERMES 단계가 포함된 경우 hermesReview 설정이 필요합니다.") }
+        }
+
+        mockMvc.post("/api/v1/problem-upload-batches/$batchId/parse") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
             content = parseBody(inactiveSubject.id!!)
         }.andExpect {
             status { isNotFound() }
@@ -383,6 +420,53 @@ class ProblemUploadBatchControllerIntegrationTest @Autowired constructor(
                 }
             }
         }
+
+        assertThat(uploadFileRepository.findByBatchIdOrderByCreatedAtAsc(batchId)).hasSize(1)
+    }
+
+    @Test
+    fun `concurrent attach allows only one insert per batch file pair`() {
+        val fixture = createTeacherFixture()
+        val fileAssetId = requestFileUpload(fixture.teacherUser.id!!)
+        val batchId = createUploadBatch(fixture.teacherUser.id!!)
+        val body = objectMapper.writeValueAsString(
+            mapOf(
+                "fileAssetId" to fileAssetId.toString(),
+                "sourceType" to "PAGE_IMAGE",
+                "pageNumber" to 1,
+            ),
+        )
+        val startLatch = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(2)
+        val tasks = (1..2).map {
+            Callable {
+                startLatch.await(5, TimeUnit.SECONDS)
+                mockMvc.post("/api/v1/problem-upload-batches/$batchId/files") {
+                    with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+                    with(csrf())
+                    contentType = MediaType.APPLICATION_JSON
+                    content = body
+                }.andReturn().response
+            }
+        }
+
+        val futures = tasks.map(executor::submit)
+        startLatch.countDown()
+        val responses = try {
+            futures.map { it.get(10, TimeUnit.SECONDS) }
+        } finally {
+            executor.shutdownNow()
+        }
+
+        assertThat(responses.map { it.status }.sorted()).containsExactly(
+            HttpStatus.OK.value(),
+            HttpStatus.CONFLICT.value(),
+        )
+        val conflictResponse = responses.single { it.status == HttpStatus.CONFLICT.value() }
+        assertThat(objectMapper.readTree(conflictResponse.contentAsString).path("error").path("code").asText())
+            .isEqualTo("CONFLICT")
+        assertThat(uploadFileRepository.findByBatchIdOrderByCreatedAtAsc(batchId).map { it.fileAssetId })
+            .containsExactly(fileAssetId)
     }
 
     @Test
@@ -478,6 +562,16 @@ class ProblemUploadBatchControllerIntegrationTest @Autowired constructor(
                 "subjectId" to subjectId.toString(),
                 "pipelineVersion" to "semantic-first-v1",
                 "deterministicStages" to listOf("OCR"),
+            ),
+        )
+
+    private fun hermesParseBodyWithoutReview(subjectId: UUID): String =
+        objectMapper.writeValueAsString(
+            mapOf(
+                "parseMode" to "SEMANTIC_FIRST",
+                "subjectId" to subjectId.toString(),
+                "pipelineVersion" to "semantic-first-v1",
+                "deterministicStages" to listOf("HERMES_VISUAL_SEMANTIC_REVIEW"),
             ),
         )
 

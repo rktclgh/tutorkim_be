@@ -14,6 +14,7 @@ import java.util.UUID
 class FileAssetService(
     private val fileAssetRepository: FileAssetRepository,
 ) {
+    private val maxStorageFilenameLength = 120
     private val allowedContentTypes = setOf(
         "application/pdf",
         "image/jpeg",
@@ -64,6 +65,7 @@ class FileAssetService(
         val safeFilename = filename
             .trim()
             .replace(Regex("""[^\w.\-가-힣]+"""), "_")
+            .let { if (it.length > maxStorageFilenameLength) it.take(maxStorageFilenameLength) else it }
             .ifBlank { "upload" }
         return "problem-upload/$ownerUserId/${UUID.randomUUID()}-$safeFilename"
     }

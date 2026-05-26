@@ -110,19 +110,18 @@ class ProblemUploadBatchService(
         batch.parseModel = request.hermesReview?.model
         batch.parseError = null
         val savedBatch = uploadBatchRepository.save(batch)
-        val savedStageRuns = request.deterministicStages.map { stageType ->
-            stageRunRepository.save(
-                DocumentIngestionStageRun(
-                    batchId = savedBatch.id!!,
-                    stageType = stageType,
-                    engineName = engineName(stageType, request),
-                    outputJson = mapOf(
-                        "parseMode" to request.parseMode,
-                        "subjectId" to request.subjectId.toString(),
-                    ),
+        val stageRuns = request.deterministicStages.map { stageType ->
+            DocumentIngestionStageRun(
+                batchId = savedBatch.id!!,
+                stageType = stageType,
+                engineName = engineName(stageType, request),
+                outputJson = mapOf(
+                    "parseMode" to request.parseMode,
+                    "subjectId" to request.subjectId.toString(),
                 ),
             )
         }
+        val savedStageRuns = stageRunRepository.saveAll(stageRuns)
 
         return toResponse(
             batch = savedBatch,
@@ -154,6 +153,10 @@ class ProblemUploadBatchService(
         }
         if (batch.parseStatus != ParseStatus.PENDING) {
             throw ApiException(ErrorCode.CONFLICT, "현재 배치 상태에서는 파싱을 시작할 수 없습니다.")
+        }
+        val hasHermesStage = request.deterministicStages.any { it.name.startsWith("HERMES_") }
+        if (hasHermesStage && request.hermesReview == null) {
+            throw ApiException(ErrorCode.VALIDATION_ERROR, "HERMES 단계가 포함된 경우 hermesReview 설정이 필요합니다.")
         }
     }
 
