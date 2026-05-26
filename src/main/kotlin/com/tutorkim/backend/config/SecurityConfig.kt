@@ -115,6 +115,11 @@ class SecurityConfig(
 					)
 					.hasRole("TEACHER")
 					.requestMatchers(
+						HttpMethod.POST,
+						"/api/v1/problem-upload-batches/*/confirm",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
 						HttpMethod.GET,
 						"/api/v1/problem-upload-batches/*",
 					)

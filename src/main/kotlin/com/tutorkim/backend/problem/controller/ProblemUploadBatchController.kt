@@ -4,12 +4,15 @@ import com.tutorkim.backend.common.exception.ApiException
 import com.tutorkim.backend.common.exception.ErrorCode
 import com.tutorkim.backend.common.web.API_PREFIX
 import com.tutorkim.backend.problem.dto.AttachProblemUploadFileRequest
+import com.tutorkim.backend.problem.dto.ConfirmProblemUploadBatchRequest
+import com.tutorkim.backend.problem.dto.ConfirmProblemUploadBatchResponse
 import com.tutorkim.backend.problem.dto.CreateProblemUploadBatchRequest
 import com.tutorkim.backend.problem.dto.ProblemUploadBatchResponse
 import com.tutorkim.backend.problem.dto.ProblemUploadFileResponse
 import com.tutorkim.backend.problem.dto.RetryProblemUploadBatchRequest
 import com.tutorkim.backend.problem.dto.StartProblemParsingRequest
 import com.tutorkim.backend.problem.service.ProblemUploadBatchService
+import com.tutorkim.backend.problem.service.ProblemUploadConfirmService
 import jakarta.validation.Valid
 import org.springframework.security.core.Authentication
 import org.springframework.web.bind.annotation.GetMapping
@@ -24,6 +27,7 @@ import java.util.UUID
 @RequestMapping(API_PREFIX)
 class ProblemUploadBatchController(
     private val problemUploadBatchService: ProblemUploadBatchService,
+    private val problemUploadConfirmService: ProblemUploadConfirmService,
 ) {
     @PostMapping("/problem-upload-batches")
     fun createBatch(
@@ -66,6 +70,18 @@ class ProblemUploadBatchController(
         @Valid @RequestBody request: RetryProblemUploadBatchRequest,
     ): ProblemUploadBatchResponse =
         problemUploadBatchService.retryParsing(
+            teacherUserId = currentUserId(authentication),
+            batchId = batchId,
+            request = request,
+        )
+
+    @PostMapping("/problem-upload-batches/{batchId}/confirm")
+    fun confirmParsedProblems(
+        authentication: Authentication,
+        @PathVariable batchId: UUID,
+        @Valid @RequestBody request: ConfirmProblemUploadBatchRequest,
+    ): ConfirmProblemUploadBatchResponse =
+        problemUploadConfirmService.confirm(
             teacherUserId = currentUserId(authentication),
             batchId = batchId,
             request = request,

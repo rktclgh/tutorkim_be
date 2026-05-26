@@ -23,7 +23,7 @@ object ProblemAnswerPolicy {
 
 			ProblemAnswerType.MULTIPLE_CHOICE -> {
 				require(spec.numericAnswer == null) { "multiple choice answer must not include a numeric answer" }
-				require(spec.choiceAnswers.isNotEmpty()) { "multiple choice answer must include at least one choice" }
+				require(spec.choiceAnswers.size >= 2) { "multiple choice answer must include at least two choices" }
 				require(spec.choiceAnswers.size == spec.choiceAnswers.toSet().size) {
 					"multiple choice answers must not include duplicates"
 				}
