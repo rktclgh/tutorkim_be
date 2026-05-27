@@ -86,6 +86,18 @@ class ProblemBankControllerIntegrationTest @Autowired constructor(
     }
 
     @Test
+    fun `teacher list rejects limit outside safe range`() {
+        val owner = createTeacherFixture("목록 제한 선생")
+
+        mockMvc.get("/api/v1/problems") {
+            with(user(owner.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("limit", "201")
+        }.andExpect {
+            status { isBadRequest() }
+        }
+    }
+
+    @Test
     fun `teacher gets problem detail and ownership is enforced`() {
         val owner = createTeacherFixture("소유 선생")
         val other = createTeacherFixture("다른 선생")

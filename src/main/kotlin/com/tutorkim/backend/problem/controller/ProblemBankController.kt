@@ -45,7 +45,7 @@ class ProblemBankController(
             depth4Id = depth4Id,
             difficulty = difficulty,
             answerType = answerType,
-            limit = limit,
+            limit = validatedLimit(limit),
         )
 
     @GetMapping("/problems/{problemId}")
@@ -76,4 +76,11 @@ class ProblemBankController(
         } catch (exception: IllegalArgumentException) {
             throw ApiException(ErrorCode.UNAUTHORIZED, cause = exception)
         }
+
+    private fun validatedLimit(limit: Int): Int {
+        if (limit !in 1..200) {
+            throw ApiException(ErrorCode.VALIDATION_ERROR, "문제 목록 조회 개수는 1에서 200 사이여야 합니다.")
+        }
+        return limit
+    }
 }

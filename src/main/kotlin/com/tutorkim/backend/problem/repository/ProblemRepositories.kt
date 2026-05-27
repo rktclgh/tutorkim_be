@@ -154,7 +154,15 @@ interface ProblemRepository : JpaRepository<Problem, UUID> {
 interface ProblemBlockRepository : JpaRepository<ProblemBlock, UUID> {
 	fun findByProblemIdOrderBySortOrderAsc(problemId: UUID): List<ProblemBlock>
 
-	fun findByProblemIdIn(problemIds: Collection<UUID>): List<ProblemBlock>
+	@Query(
+		"""
+		select block
+		from ProblemBlock block
+		where block.problemId in :problemIds
+		order by block.problemId asc, block.sortOrder asc
+		""",
+	)
+	fun findByProblemIdIn(@Param("problemIds") problemIds: Collection<UUID>): List<ProblemBlock>
 
 	@Modifying(flushAutomatically = true)
 	@Query("delete from ProblemBlock block where block.problemId = :problemId")
