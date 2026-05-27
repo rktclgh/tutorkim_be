@@ -124,6 +124,21 @@ class SecurityConfig(
 						"/api/v1/problem-upload-batches/*",
 					)
 					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.GET,
+						"/api/v1/problems",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.GET,
+						"/api/v1/problems/*",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.PATCH,
+						"/api/v1/problems/*",
+					)
+					.hasRole("TEACHER")
 					.anyRequest()
 					.authenticated()
 			}

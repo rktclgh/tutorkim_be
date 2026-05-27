@@ -1,0 +1,182 @@
+package com.tutorkim.backend.problem.service
+
+import com.tutorkim.backend.common.exception.ApiException
+import com.tutorkim.backend.common.exception.ErrorCode
+import com.tutorkim.backend.problem.dto.ProblemDetailResponse
+import com.tutorkim.backend.problem.dto.ProblemSummaryResponse
+import com.tutorkim.backend.problem.dto.UpdateProblemRequest
+import com.tutorkim.backend.problem.entity.Problem
+import com.tutorkim.backend.problem.entity.ProblemAnswerType
+import com.tutorkim.backend.problem.repository.ProblemBlockRepository
+import com.tutorkim.backend.problem.repository.ProblemExplanationRepository
+import com.tutorkim.backend.problem.repository.ProblemRepository
+import com.tutorkim.backend.student.repository.TeacherProfileRepository
+import org.springframework.data.domain.PageRequest
+import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
+import java.time.Instant
+import java.util.UUID
+
+@Service
+class ProblemBankService(
+    private val teacherProfileRepository: TeacherProfileRepository,
+    private val problemRepository: ProblemRepository,
+    private val problemBlockRepository: ProblemBlockRepository,
+    private val problemExplanationRepository: ProblemExplanationRepository,
+    private val problemContentWriteSupport: ProblemContentWriteSupport,
+) {
+    @Transactional(readOnly = true)
+    fun listProblems(
+        teacherUserId: UUID,
+        subjectId: UUID?,
+        depth1Id: UUID?,
+        depth2Id: UUID?,
+        depth3Id: UUID?,
+        depth4Id: UUID?,
+        difficulty: Int?,
+        answerType: ProblemAnswerType?,
+        limit: Int,
+    ): List<ProblemSummaryResponse> {
+        val teacherId = findTeacherId(teacherUserId)
+        val difficultyValue = difficulty?.also {
+            if (it !in 1..5) {
+                throw ApiException(ErrorCode.VALIDATION_ERROR, "난이도는 1에서 5 사이여야 합니다.")
+            }
+        }?.toShort()
+        if (limit !in 1..200) {
+            throw ApiException(ErrorCode.VALIDATION_ERROR, "문제 목록 조회 개수는 1에서 200 사이여야 합니다.")
+        }
+
+        val problems = problemRepository.searchActiveForOwner(
+            ownerTeacherId = teacherId,
+            subjectId = subjectId,
+            depth1Id = depth1Id,
+            depth2Id = depth2Id,
+            depth3Id = depth3Id,
+            depth4Id = depth4Id,
+            difficulty = difficultyValue,
+            answerType = answerType,
+            pageable = PageRequest.of(0, limit),
+        )
+        val blocksByProblemId = problemBlockRepository.findByProblemIdIn(problems.mapNotNull { it.id })
+            .groupBy { it.problemId }
+            .mapValues { (_, blocks) -> blocks.sortedBy { it.sortOrder } }
+
+        return problems.map { problem ->
+            ProblemSummaryResponse.from(
+                problem = problem,
+                blocks = blocksByProblemId[problem.id!!].orEmpty(),
+            )
+        }
+    }
+
+    @Transactional(readOnly = true)
+    fun getProblem(
+        teacherUserId: UUID,
+        problemId: UUID,
+    ): ProblemDetailResponse {
+        val teacherId = findTeacherId(teacherUserId)
+        val problem = findOwnedActiveProblem(problemId, teacherId)
+        return detail(problem.id!!, problem)
+    }
+
+    @Transactional
+    fun updateProblem(
+        teacherUserId: UUID,
+        problemId: UUID,
+        request: UpdateProblemRequest,
+    ): ProblemDetailResponse {
+        val teacherId = findTeacherId(teacherUserId)
+        val problem = problemRepository.findActiveByIdAndOwnerTeacherIdForUpdate(problemId, teacherId)
+            ?: throw ApiException(ErrorCode.NOT_FOUND, "문제를 찾을 수 없습니다.")
+        val labels = problemContentWriteSupport.resolveLabels(
+            teacherId = teacherId,
+            labelDepth1Id = request.labelDepth1Id,
+            labelDepth2Id = request.labelDepth2Id,
+            labelDepth3Id = request.labelDepth3Id,
+            labelDepth4Id = request.labelDepth4Id,
+        )
+        problemContentWriteSupport.validateAnswer(
+            answerType = request.answerType,
+            choiceAnswers = request.correctChoiceNumbers,
+            numericAnswer = request.correctNumericAnswer,
+            difficulty = request.difficulty,
+        )
+        problemContentWriteSupport.validateProblemBlocks(teacherUserId, request.blocks)
+        problemContentWriteSupport.validateExplanationBlocks(request.explanationBlocks)
+        request.teacherSolutionAssets.forEach { problemContentWriteSupport.validateTeacherSolutionAsset(teacherUserId, it) }
+
+        problem.subjectId = labels.subjectId
+        problem.answerType = request.answerType
+        problem.correctChoiceNumbers = request.correctChoiceNumbers.map { it.toShort() }.ifEmpty { null }
+        problem.correctNumericAnswer = request.correctNumericAnswer
+        problem.difficulty = request.difficulty.toShort()
+        problem.labelDepth1Id = labels.depth1.id!!
+        problem.labelDepth2Id = labels.depth2.id!!
+        problem.labelDepth3Id = labels.depth3.id!!
+        problem.labelDepth4Id = labels.depth4?.id
+        problem.hasExplanation = request.explanationBlocks.isNotEmpty() || request.teacherSolutionAssets.isNotEmpty()
+
+        val savedProblem = problemRepository.saveAndFlush(problem)
+        replaceBlocksAndExplanations(
+            teacherUserId = teacherUserId,
+            problemId = savedProblem.id!!,
+            request = request,
+        )
+
+        return detail(savedProblem.id!!, savedProblem)
+    }
+
+    private fun replaceBlocksAndExplanations(
+        teacherUserId: UUID,
+        problemId: UUID,
+        request: UpdateProblemRequest,
+    ) {
+        problemBlockRepository.deleteAll(problemBlockRepository.findByProblemIdOrderBySortOrderAsc(problemId))
+        archiveActiveExplanations(problemId)
+        problemBlockRepository.flush()
+        problemExplanationRepository.flush()
+        problemBlockRepository.saveAll(problemContentWriteSupport.buildProblemBlocks(problemId, request.blocks))
+        problemExplanationRepository.saveAll(
+            problemContentWriteSupport.buildExplanations(
+                teacherUserId = teacherUserId,
+                problemId = problemId,
+                explanationBlocks = request.explanationBlocks,
+                teacherSolutionAssets = request.teacherSolutionAssets,
+            ),
+        )
+    }
+
+    private fun archiveActiveExplanations(problemId: UUID) {
+        val existingExplanations = problemExplanationRepository.findByProblemIdOrderBySortOrderAsc(problemId)
+        val minSortOrder = existingExplanations.minOfOrNull { it.sortOrder } ?: 0
+        val now = Instant.now()
+        val activeExplanations = existingExplanations.filter { it.archivedAt == null }
+        activeExplanations.forEachIndexed { index, explanation ->
+            explanation.archivedAt = now
+            explanation.sortOrder = minSortOrder - index - 1
+        }
+        problemExplanationRepository.saveAll(activeExplanations)
+    }
+
+    private fun detail(
+        problemId: UUID,
+        problem: Problem,
+    ): ProblemDetailResponse =
+        ProblemDetailResponse.from(
+            problem = problem,
+            blocks = problemBlockRepository.findByProblemIdOrderBySortOrderAsc(problemId),
+            explanations = problemExplanationRepository.findByProblemIdAndArchivedAtIsNullOrderBySortOrderAsc(problemId),
+        )
+
+    private fun findTeacherId(teacherUserId: UUID): UUID =
+        teacherProfileRepository.findByUser_Id(teacherUserId)?.id
+            ?: throw ApiException(ErrorCode.NOT_FOUND, "선생 프로필을 찾을 수 없습니다.")
+
+    private fun findOwnedActiveProblem(
+        problemId: UUID,
+        teacherId: UUID,
+    ): Problem =
+        problemRepository.findByIdAndOwnerTeacherIdAndArchivedAtIsNullAndDeletedAtIsNull(problemId, teacherId)
+            ?: throw ApiException(ErrorCode.NOT_FOUND, "문제를 찾을 수 없습니다.")
+}
