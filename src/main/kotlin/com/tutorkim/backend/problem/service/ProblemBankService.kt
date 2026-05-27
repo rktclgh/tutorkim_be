@@ -58,6 +58,10 @@ class ProblemBankService(
             answerType = answerType,
             pageable = PageRequest.of(0, limit),
         )
+        if (problems.isEmpty()) {
+            return emptyList()
+        }
+
         val blocksByProblemId = problemBlockRepository.findByProblemIdIn(problems.mapNotNull { it.id })
             .groupBy { it.problemId }
             .mapValues { (_, blocks) -> blocks.sortedBy { it.sortOrder } }
@@ -132,9 +136,8 @@ class ProblemBankService(
         problemId: UUID,
         request: UpdateProblemRequest,
     ) {
-        problemBlockRepository.deleteAll(problemBlockRepository.findByProblemIdOrderBySortOrderAsc(problemId))
+        problemBlockRepository.deleteByProblemId(problemId)
         archiveActiveExplanations(problemId)
-        problemBlockRepository.flush()
         problemExplanationRepository.flush()
         problemBlockRepository.saveAll(problemContentWriteSupport.buildProblemBlocks(problemId, request.blocks))
         problemExplanationRepository.saveAll(
@@ -148,10 +151,14 @@ class ProblemBankService(
     }
 
     private fun archiveActiveExplanations(problemId: UUID) {
-        val existingExplanations = problemExplanationRepository.findByProblemIdOrderBySortOrderAsc(problemId)
-        val minSortOrder = existingExplanations.minOfOrNull { it.sortOrder } ?: 0
+        val activeExplanations =
+            problemExplanationRepository.findByProblemIdAndArchivedAtIsNullOrderBySortOrderAsc(problemId)
+        if (activeExplanations.isEmpty()) {
+            return
+        }
+
+        val minSortOrder = problemExplanationRepository.findMinSortOrderByProblemId(problemId) ?: 0
         val now = Instant.now()
-        val activeExplanations = existingExplanations.filter { it.archivedAt == null }
         activeExplanations.forEachIndexed { index, explanation ->
             explanation.archivedAt = now
             explanation.sortOrder = minSortOrder - index - 1

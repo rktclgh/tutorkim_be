@@ -1,8 +1,8 @@
 package com.tutorkim.backend.problem.repository
 
-import com.tutorkim.backend.problem.entity.ParseStatus
 import com.tutorkim.backend.problem.entity.DocumentIngestionArtifact
 import com.tutorkim.backend.problem.entity.DocumentIngestionStageRun
+import com.tutorkim.backend.problem.entity.ParseStatus
 import com.tutorkim.backend.problem.entity.Problem
 import com.tutorkim.backend.problem.entity.ProblemAnswerType
 import com.tutorkim.backend.problem.entity.ProblemBlock
@@ -10,11 +10,12 @@ import com.tutorkim.backend.problem.entity.ProblemExplanation
 import com.tutorkim.backend.problem.entity.ProblemUploadBatch
 import com.tutorkim.backend.problem.entity.ProblemUploadFile
 import jakarta.persistence.LockModeType
+import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Lock
+import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
-import org.springframework.data.domain.Pageable
 import java.util.UUID
 
 interface ProblemUploadBatchRepository : JpaRepository<ProblemUploadBatch, UUID> {
@@ -154,10 +155,17 @@ interface ProblemBlockRepository : JpaRepository<ProblemBlock, UUID> {
 	fun findByProblemIdOrderBySortOrderAsc(problemId: UUID): List<ProblemBlock>
 
 	fun findByProblemIdIn(problemIds: Collection<UUID>): List<ProblemBlock>
+
+	@Modifying(flushAutomatically = true)
+	@Query("delete from ProblemBlock block where block.problemId = :problemId")
+	fun deleteByProblemId(@Param("problemId") problemId: UUID)
 }
 
 interface ProblemExplanationRepository : JpaRepository<ProblemExplanation, UUID> {
 	fun findByProblemIdOrderBySortOrderAsc(problemId: UUID): List<ProblemExplanation>
 
 	fun findByProblemIdAndArchivedAtIsNullOrderBySortOrderAsc(problemId: UUID): List<ProblemExplanation>
+
+	@Query("select min(explanation.sortOrder) from ProblemExplanation explanation where explanation.problemId = :problemId")
+	fun findMinSortOrderByProblemId(@Param("problemId") problemId: UUID): Int?
 }
