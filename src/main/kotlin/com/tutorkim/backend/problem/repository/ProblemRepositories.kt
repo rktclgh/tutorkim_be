@@ -1,16 +1,19 @@
 package com.tutorkim.backend.problem.repository
 
-import com.tutorkim.backend.problem.entity.ParseStatus
 import com.tutorkim.backend.problem.entity.DocumentIngestionArtifact
 import com.tutorkim.backend.problem.entity.DocumentIngestionStageRun
+import com.tutorkim.backend.problem.entity.ParseStatus
 import com.tutorkim.backend.problem.entity.Problem
+import com.tutorkim.backend.problem.entity.ProblemAnswerType
 import com.tutorkim.backend.problem.entity.ProblemBlock
 import com.tutorkim.backend.problem.entity.ProblemExplanation
 import com.tutorkim.backend.problem.entity.ProblemUploadBatch
 import com.tutorkim.backend.problem.entity.ProblemUploadFile
 import jakarta.persistence.LockModeType
+import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Lock
+import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import java.util.UUID
@@ -96,12 +99,81 @@ interface ProblemRepository : JpaRepository<Problem, UUID> {
 		@Param("subjectId") subjectId: UUID,
 		@Param("labelId") labelId: UUID,
 	): List<Problem>
+
+	@Query(
+		"""
+		select problem
+		from Problem problem
+		where problem.ownerTeacherId = :ownerTeacherId
+		  and problem.archivedAt is null
+		  and problem.deletedAt is null
+		  and (:subjectId is null or problem.subjectId = :subjectId)
+		  and (:depth1Id is null or problem.labelDepth1Id = :depth1Id)
+		  and (:depth2Id is null or problem.labelDepth2Id = :depth2Id)
+		  and (:depth3Id is null or problem.labelDepth3Id = :depth3Id)
+		  and (:depth4Id is null or problem.labelDepth4Id = :depth4Id)
+		  and (:difficulty is null or problem.difficulty = :difficulty)
+		  and (:answerType is null or problem.answerType = :answerType)
+		order by problem.createdAt desc
+		""",
+	)
+	fun searchActiveForOwner(
+		@Param("ownerTeacherId") ownerTeacherId: UUID,
+		@Param("subjectId") subjectId: UUID?,
+		@Param("depth1Id") depth1Id: UUID?,
+		@Param("depth2Id") depth2Id: UUID?,
+		@Param("depth3Id") depth3Id: UUID?,
+		@Param("depth4Id") depth4Id: UUID?,
+		@Param("difficulty") difficulty: Short?,
+		@Param("answerType") answerType: ProblemAnswerType?,
+		pageable: Pageable,
+	): List<Problem>
+
+	fun findByIdAndOwnerTeacherIdAndArchivedAtIsNullAndDeletedAtIsNull(
+		id: UUID,
+		ownerTeacherId: UUID,
+	): Problem?
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query(
+		"""
+		select problem
+		from Problem problem
+		where problem.id = :id
+		  and problem.ownerTeacherId = :ownerTeacherId
+		  and problem.archivedAt is null
+		  and problem.deletedAt is null
+		""",
+	)
+	fun findActiveByIdAndOwnerTeacherIdForUpdate(
+		@Param("id") id: UUID,
+		@Param("ownerTeacherId") ownerTeacherId: UUID,
+	): Problem?
 }
 
 interface ProblemBlockRepository : JpaRepository<ProblemBlock, UUID> {
 	fun findByProblemIdOrderBySortOrderAsc(problemId: UUID): List<ProblemBlock>
+
+	@Query(
+		"""
+		select block
+		from ProblemBlock block
+		where block.problemId in :problemIds
+		order by block.problemId asc, block.sortOrder asc
+		""",
+	)
+	fun findByProblemIdIn(@Param("problemIds") problemIds: Collection<UUID>): List<ProblemBlock>
+
+	@Modifying(flushAutomatically = true)
+	@Query("delete from ProblemBlock block where block.problemId = :problemId")
+	fun deleteByProblemId(@Param("problemId") problemId: UUID)
 }
 
 interface ProblemExplanationRepository : JpaRepository<ProblemExplanation, UUID> {
 	fun findByProblemIdOrderBySortOrderAsc(problemId: UUID): List<ProblemExplanation>
+
+	fun findByProblemIdAndArchivedAtIsNullOrderBySortOrderAsc(problemId: UUID): List<ProblemExplanation>
+
+	@Query("select min(explanation.sortOrder) from ProblemExplanation explanation where explanation.problemId = :problemId")
+	fun findMinSortOrderByProblemId(@Param("problemId") problemId: UUID): Int?
 }

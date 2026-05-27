@@ -102,6 +102,11 @@ begin
 			on problem_upload_files (batch_id, file_asset_id)';
 	end if;
 
+	if to_regclass('public.problem_explanations') is not null then
+		execute 'alter table problem_explanations
+			add column if not exists archived_at timestamptz';
+	end if;
+
 	if to_regclass('public.problem_upload_batches') is not null
 		and to_regclass('public.problem_upload_files') is not null
 		and to_regclass('public.document_ingestion_stage_runs') is not null

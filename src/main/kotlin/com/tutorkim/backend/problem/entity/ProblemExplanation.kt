@@ -75,6 +75,9 @@ class ProblemExplanation(
 	@Column(name = "created_by")
 	var createdBy: UUID? = null,
 
+	@Column(name = "archived_at")
+	var archivedAt: Instant? = null,
+
 	@Column(name = "created_at", nullable = false, updatable = false)
 	var createdAt: Instant = Instant.now(),
 
