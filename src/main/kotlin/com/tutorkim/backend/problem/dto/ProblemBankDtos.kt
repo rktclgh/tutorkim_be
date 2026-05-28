@@ -187,3 +187,13 @@ data class UpdateProblemRequest(
     @field:Valid
     val teacherSolutionAssets: List<ConfirmTeacherSolutionAssetRequest> = emptyList(),
 )
+
+data class AttachTeacherSolutionRequest(
+    @field:NotNull
+    val fileAssetId: UUID,
+
+    val visibleToStudent: Boolean = true,
+
+    @field:Size(max = 500)
+    val note: String? = null,
+)

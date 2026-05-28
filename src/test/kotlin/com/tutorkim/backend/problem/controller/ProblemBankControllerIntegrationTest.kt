@@ -33,8 +33,10 @@ import org.springframework.http.MediaType
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.patch
+import org.springframework.test.web.servlet.post
 import java.time.Instant
 import java.util.UUID
 
@@ -283,6 +285,226 @@ class ProblemBankControllerIntegrationTest @Autowired constructor(
         }
     }
 
+    @Test
+    fun `teacher attaches solution asset to own problem`() {
+        val owner = createTeacherFixture("풀이 첨부 선생")
+        val subject = createSubject("수학")
+        val labels = createLabelFixture(subject.id!!)
+        val asset = createFileAsset(owner.teacherUser.id!!, "solution.png")
+        val problem = createProblem(owner.teacherProfile.id!!, subject.id!!, labels, "풀이 없는 문제")
+
+        mockMvc.post("/api/v1/problems/${problem.id}/teacher-solution-files") {
+            with(user(owner.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = attachTeacherSolutionBody(asset.id!!, visibleToStudent = false, note = "추가 풀이")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.id") { value(problem.id!!.toString()) }
+            jsonPath("$.data.hasExplanation") { value(true) }
+            jsonPath("$.data.explanations.length()") { value(1) }
+            jsonPath("$.data.explanations[0].sourceType") { value("TEACHER_SOLUTION_IMAGE") }
+            jsonPath("$.data.explanations[0].fileAssetId") { value(asset.id!!.toString()) }
+            jsonPath("$.data.explanations[0].metadata.note") { value("추가 풀이") }
+            jsonPath("$.data.explanations[0].visibleToStudent") { value(false) }
+        }
+
+        val savedProblem = problemRepository.findById(problem.id!!).orElseThrow()
+        assertThat(savedProblem.hasExplanation).isTrue()
+        val explanations = problemExplanationRepository.findByProblemIdAndArchivedAtIsNullOrderBySortOrderAsc(problem.id!!)
+        assertThat(explanations).hasSize(1)
+        assertThat(explanations.single().createdBy).isEqualTo(owner.teacherUser.id!!)
+    }
+
+    @Test
+    fun `teacher solution attach enforces problem and file ownership`() {
+        val owner = createTeacherFixture("풀이 권한 선생")
+        val other = createTeacherFixture("풀이 다른 선생")
+        val studentUser = userRepository.save(
+            User(
+                email = "student-${UUID.randomUUID()}@example.com",
+                name = "학생",
+                role = UserRole.STUDENT,
+            ),
+        )
+        studentProfileRepository.save(StudentProfile(user = studentUser, name = "학생"))
+        val subject = createSubject("수학")
+        val labels = createLabelFixture(subject.id!!)
+        val ownerAsset = createFileAsset(owner.teacherUser.id!!, "owner.png")
+        val otherAsset = createFileAsset(other.teacherUser.id!!, "other.png")
+        val problem = createProblem(owner.teacherProfile.id!!, subject.id!!, labels, "풀이 권한 문제")
+
+        mockMvc.post("/api/v1/problems/${problem.id}/teacher-solution-files") {
+            with(user(other.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = attachTeacherSolutionBody(ownerAsset.id!!)
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+        }
+
+        mockMvc.post("/api/v1/problems/${problem.id}/teacher-solution-files") {
+            with(user(owner.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = attachTeacherSolutionBody(otherAsset.id!!)
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+            jsonPath("$.error.message") { value("첨부 파일을 찾을 수 없습니다.") }
+        }
+
+        mockMvc.post("/api/v1/problems/${problem.id}/teacher-solution-files") {
+            with(user(studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = attachTeacherSolutionBody(ownerAsset.id!!)
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.code") { value("FORBIDDEN") }
+        }
+    }
+
+    @Test
+    fun `teacher deletes solution asset by archiving explanation row`() {
+        val owner = createTeacherFixture("풀이 삭제 선생")
+        val subject = createSubject("수학")
+        val labels = createLabelFixture(subject.id!!)
+        val asset = createFileAsset(owner.teacherUser.id!!, "solution.png")
+        val problem = createProblem(owner.teacherProfile.id!!, subject.id!!, labels, "풀이 삭제 문제", asset)
+        val explanation = problemExplanationRepository.findByProblemIdAndArchivedAtIsNullOrderBySortOrderAsc(problem.id!!).single()
+
+        mockMvc.delete("/api/v1/problems/${problem.id}/teacher-solution-files/${explanation.id}") {
+            with(user(owner.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.id") { value(problem.id!!.toString()) }
+            jsonPath("$.data.hasExplanation") { value(false) }
+            jsonPath("$.data.explanations.length()") { value(0) }
+        }
+
+        val archivedExplanation = problemExplanationRepository.findById(explanation.id!!).orElseThrow()
+        assertThat(archivedExplanation.archivedAt).isNotNull()
+        assertThat(archivedExplanation.sortOrder).isLessThan(1)
+        assertThat(problemRepository.findById(problem.id!!).orElseThrow().hasExplanation).isFalse()
+    }
+
+    @Test
+    fun `teacher solution delete enforces problem ownership`() {
+        val owner = createTeacherFixture("풀이 삭제 소유 선생")
+        val other = createTeacherFixture("풀이 삭제 다른 선생")
+        val subject = createSubject("수학")
+        val labels = createLabelFixture(subject.id!!)
+        val asset = createFileAsset(owner.teacherUser.id!!, "solution.png")
+        val problem = createProblem(owner.teacherProfile.id!!, subject.id!!, labels, "풀이 삭제 권한 문제", asset)
+        val explanation = problemExplanationRepository.findByProblemIdAndArchivedAtIsNullOrderBySortOrderAsc(problem.id!!).single()
+
+        mockMvc.delete("/api/v1/problems/${problem.id}/teacher-solution-files/${explanation.id}") {
+            with(user(other.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+        }
+
+        val savedExplanation = problemExplanationRepository.findById(explanation.id!!).orElseThrow()
+        assertThat(savedExplanation.archivedAt).isNull()
+    }
+
+    @Test
+    fun `teacher solution delete rejects non solution explanations`() {
+        val owner = createTeacherFixture("풀이 삭제 검증 선생")
+        val subject = createSubject("수학")
+        val labels = createLabelFixture(subject.id!!)
+        val problem = createProblem(owner.teacherProfile.id!!, subject.id!!, labels, "텍스트 풀이 문제")
+        val explanation = problemExplanationRepository.saveAndFlush(
+            ProblemExplanation(
+                problemId = problem.id!!,
+                sortOrder = 1,
+                sourceType = ProblemExplanationSourceType.TEACHER_TEXT,
+                textContent = "텍스트 풀이",
+                visibleToStudent = true,
+            ),
+        )
+
+        mockMvc.delete("/api/v1/problems/${problem.id}/teacher-solution-files/${explanation.id}") {
+            with(user(owner.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("VALIDATION_ERROR") }
+            jsonPath("$.error.message") { value("선생 풀이 파일만 삭제할 수 있습니다.") }
+        }
+    }
+
+    @Test
+    fun `teacher archives own problem from future selection`() {
+        val owner = createTeacherFixture("보관 선생")
+        val subject = createSubject("수학")
+        val labels = createLabelFixture(subject.id!!)
+        val problem = createProblem(owner.teacherProfile.id!!, subject.id!!, labels, "보관할 문제")
+
+        mockMvc.patch("/api/v1/problems/${problem.id}/archive") {
+            with(user(owner.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isNoContent() }
+        }
+
+        val savedProblem = problemRepository.findById(problem.id!!).orElseThrow()
+        assertThat(savedProblem.archivedAt).isNotNull()
+        assertThat(savedProblem.archivedBy).isEqualTo(owner.teacherUser.id!!)
+
+        mockMvc.get("/api/v1/problems/${problem.id}") {
+            with(user(owner.teacherUser.id!!.toString()).roles("TEACHER"))
+        }.andExpect {
+            status { isNotFound() }
+        }
+
+        mockMvc.get("/api/v1/problems") {
+            with(user(owner.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("subjectId", subject.id!!.toString())
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.length()") { value(0) }
+        }
+    }
+
+    @Test
+    fun `archive enforces teacher ownership and role`() {
+        val owner = createTeacherFixture("보관 소유 선생")
+        val other = createTeacherFixture("보관 다른 선생")
+        val studentUser = userRepository.save(
+            User(
+                email = "student-${UUID.randomUUID()}@example.com",
+                name = "학생",
+                role = UserRole.STUDENT,
+            ),
+        )
+        studentProfileRepository.save(StudentProfile(user = studentUser, name = "학생"))
+        val subject = createSubject("수학")
+        val labels = createLabelFixture(subject.id!!)
+        val problem = createProblem(owner.teacherProfile.id!!, subject.id!!, labels, "보관 권한 문제")
+
+        mockMvc.patch("/api/v1/problems/${problem.id}/archive") {
+            with(user(other.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+        }
+
+        mockMvc.patch("/api/v1/problems/${problem.id}/archive") {
+            with(user(studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.code") { value("FORBIDDEN") }
+        }
+    }
+
     private fun updateBody(
         labels: LabelFixture,
         solutionAssetId: UUID,
@@ -323,6 +545,19 @@ class ProblemBankControllerIntegrationTest @Autowired constructor(
                     "visibleToStudent" to true,
                     "note" to "새 풀이",
                 ),
+            ),
+        )
+
+    private fun attachTeacherSolutionBody(
+        fileAssetId: UUID,
+        visibleToStudent: Boolean = true,
+        note: String? = null,
+    ): String =
+        objectMapper.writeValueAsString(
+            mapOf(
+                "fileAssetId" to fileAssetId.toString(),
+                "visibleToStudent" to visibleToStudent,
+                "note" to note,
             ),
         )
 
