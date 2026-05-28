@@ -88,6 +88,20 @@ interface TeacherStudentRepository : JpaRepository<TeacherStudent, UUID> {
         @Param("teacherUserId") teacherUserId: UUID,
         @Param("studentId") studentId: UUID,
     ): TeacherStudent?
+
+    @Query(
+        """
+        select distinct relationship
+        from TeacherStudent relationship
+        join fetch relationship.student student
+        where relationship.id in :ids
+          and relationship.teacher.id = :teacherId
+        """,
+    )
+    fun findByIdInAndTeacherIdWithStudent(
+        @Param("ids") ids: Collection<UUID>,
+        @Param("teacherId") teacherId: UUID,
+    ): List<TeacherStudent>
 }
 
 interface TeacherInviteCodeRepository : JpaRepository<TeacherInviteCode, UUID> {

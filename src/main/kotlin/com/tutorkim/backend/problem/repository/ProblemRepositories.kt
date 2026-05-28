@@ -134,6 +134,11 @@ interface ProblemRepository : JpaRepository<Problem, UUID> {
 		ownerTeacherId: UUID,
 	): Problem?
 
+	fun findByOwnerTeacherIdAndArchivedAtIsNullAndDeletedAtIsNullAndIdIn(
+		ownerTeacherId: UUID,
+		ids: Collection<UUID>,
+	): List<Problem>
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query(
 		"""
