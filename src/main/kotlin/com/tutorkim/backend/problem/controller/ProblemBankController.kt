@@ -3,19 +3,24 @@ package com.tutorkim.backend.problem.controller
 import com.tutorkim.backend.common.exception.ApiException
 import com.tutorkim.backend.common.exception.ErrorCode
 import com.tutorkim.backend.common.web.API_PREFIX
+import com.tutorkim.backend.problem.dto.AttachTeacherSolutionRequest
 import com.tutorkim.backend.problem.dto.ProblemDetailResponse
 import com.tutorkim.backend.problem.dto.ProblemSummaryResponse
 import com.tutorkim.backend.problem.dto.UpdateProblemRequest
 import com.tutorkim.backend.problem.entity.ProblemAnswerType
 import com.tutorkim.backend.problem.service.ProblemBankService
 import jakarta.validation.Valid
+import org.springframework.http.HttpStatus
 import org.springframework.security.core.Authentication
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
+import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import java.util.UUID
 
@@ -69,6 +74,42 @@ class ProblemBankController(
             problemId = problemId,
             request = request,
         )
+
+    @PostMapping("/problems/{problemId}/teacher-solution-files")
+    fun attachTeacherSolution(
+        authentication: Authentication,
+        @PathVariable problemId: UUID,
+        @Valid @RequestBody request: AttachTeacherSolutionRequest,
+    ): ProblemDetailResponse =
+        problemBankService.attachTeacherSolution(
+            teacherUserId = currentUserId(authentication),
+            problemId = problemId,
+            request = request,
+        )
+
+    @DeleteMapping("/problems/{problemId}/teacher-solution-files/{explanationId}")
+    fun deleteTeacherSolution(
+        authentication: Authentication,
+        @PathVariable problemId: UUID,
+        @PathVariable explanationId: UUID,
+    ): ProblemDetailResponse =
+        problemBankService.deleteTeacherSolution(
+            teacherUserId = currentUserId(authentication),
+            problemId = problemId,
+            explanationId = explanationId,
+        )
+
+    @PatchMapping("/problems/{problemId}/archive")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun archiveProblem(
+        authentication: Authentication,
+        @PathVariable problemId: UUID,
+    ) {
+        problemBankService.archiveProblem(
+            teacherUserId = currentUserId(authentication),
+            problemId = problemId,
+        )
+    }
 
     private fun currentUserId(authentication: Authentication): UUID =
         try {

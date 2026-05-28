@@ -139,6 +139,21 @@ class SecurityConfig(
 						"/api/v1/problems/*",
 					)
 					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.POST,
+						"/api/v1/problems/*/teacher-solution-files",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.DELETE,
+						"/api/v1/problems/*/teacher-solution-files/*",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.PATCH,
+						"/api/v1/problems/*/archive",
+					)
+					.hasRole("TEACHER")
 					.anyRequest()
 					.authenticated()
 			}

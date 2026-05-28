@@ -174,6 +174,23 @@ interface ProblemExplanationRepository : JpaRepository<ProblemExplanation, UUID>
 
 	fun findByProblemIdAndArchivedAtIsNullOrderBySortOrderAsc(problemId: UUID): List<ProblemExplanation>
 
+	fun findByIdAndProblemIdAndArchivedAtIsNull(
+		id: UUID,
+		problemId: UUID,
+	): ProblemExplanation?
+
+	fun existsByProblemIdAndArchivedAtIsNull(problemId: UUID): Boolean
+
 	@Query("select min(explanation.sortOrder) from ProblemExplanation explanation where explanation.problemId = :problemId")
 	fun findMinSortOrderByProblemId(@Param("problemId") problemId: UUID): Int?
+
+	@Query(
+		"""
+		select max(explanation.sortOrder)
+		from ProblemExplanation explanation
+		where explanation.problemId = :problemId
+		  and explanation.archivedAt is null
+		""",
+	)
+	fun findMaxActiveSortOrderByProblemId(@Param("problemId") problemId: UUID): Int?
 }

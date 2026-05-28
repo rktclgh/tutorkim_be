@@ -2,11 +2,15 @@ package com.tutorkim.backend.problem.service
 
 import com.tutorkim.backend.common.exception.ApiException
 import com.tutorkim.backend.common.exception.ErrorCode
+import com.tutorkim.backend.problem.dto.AttachTeacherSolutionRequest
+import com.tutorkim.backend.problem.dto.ConfirmTeacherSolutionAssetRequest
 import com.tutorkim.backend.problem.dto.ProblemDetailResponse
 import com.tutorkim.backend.problem.dto.ProblemSummaryResponse
 import com.tutorkim.backend.problem.dto.UpdateProblemRequest
 import com.tutorkim.backend.problem.entity.Problem
 import com.tutorkim.backend.problem.entity.ProblemAnswerType
+import com.tutorkim.backend.problem.entity.ProblemExplanation
+import com.tutorkim.backend.problem.entity.ProblemExplanationSourceType
 import com.tutorkim.backend.problem.repository.ProblemBlockRepository
 import com.tutorkim.backend.problem.repository.ProblemExplanationRepository
 import com.tutorkim.backend.problem.repository.ProblemRepository
@@ -131,6 +135,73 @@ class ProblemBankService(
         return detail(savedProblem.id!!, savedProblem)
     }
 
+    @Transactional
+    fun attachTeacherSolution(
+        teacherUserId: UUID,
+        problemId: UUID,
+        request: AttachTeacherSolutionRequest,
+    ): ProblemDetailResponse {
+        val teacherId = findTeacherId(teacherUserId)
+        val problem = problemRepository.findActiveByIdAndOwnerTeacherIdForUpdate(problemId, teacherId)
+            ?: throw ApiException(ErrorCode.NOT_FOUND, "문제를 찾을 수 없습니다.")
+        val assetRequest = ConfirmTeacherSolutionAssetRequest(
+            fileAssetId = request.fileAssetId,
+            visibleToStudent = request.visibleToStudent,
+            note = request.note,
+        )
+        problemContentWriteSupport.validateTeacherSolutionAsset(teacherUserId, assetRequest)
+
+        val explanation = ProblemExplanation(
+            problemId = problem.id!!,
+            sortOrder = nextActiveExplanationSortOrder(problem.id!!),
+            sourceType = ProblemExplanationSourceType.TEACHER_SOLUTION_IMAGE,
+            fileAssetId = request.fileAssetId,
+            metadata = mapOf("note" to request.note).filterValues { it != null },
+            visibleToStudent = request.visibleToStudent,
+            createdBy = teacherUserId,
+        )
+        problem.hasExplanation = true
+        val savedProblem = problemRepository.saveAndFlush(problem)
+        problemExplanationRepository.saveAndFlush(explanation)
+
+        return detail(savedProblem.id!!, savedProblem)
+    }
+
+    @Transactional
+    fun deleteTeacherSolution(
+        teacherUserId: UUID,
+        problemId: UUID,
+        explanationId: UUID,
+    ): ProblemDetailResponse {
+        val teacherId = findTeacherId(teacherUserId)
+        val problem = problemRepository.findActiveByIdAndOwnerTeacherIdForUpdate(problemId, teacherId)
+            ?: throw ApiException(ErrorCode.NOT_FOUND, "문제를 찾을 수 없습니다.")
+        val explanation = problemExplanationRepository.findByIdAndProblemIdAndArchivedAtIsNull(explanationId, problem.id!!)
+            ?: throw ApiException(ErrorCode.NOT_FOUND, "선생 풀이 파일을 찾을 수 없습니다.")
+        if (explanation.sourceType != ProblemExplanationSourceType.TEACHER_SOLUTION_IMAGE || explanation.fileAssetId == null) {
+            throw ApiException(ErrorCode.VALIDATION_ERROR, "선생 풀이 파일만 삭제할 수 있습니다.")
+        }
+
+        archiveExplanation(explanation, problem.id!!)
+        problem.hasExplanation = problemExplanationRepository.existsByProblemIdAndArchivedAtIsNull(problem.id!!)
+        val savedProblem = problemRepository.saveAndFlush(problem)
+
+        return detail(savedProblem.id!!, savedProblem)
+    }
+
+    @Transactional
+    fun archiveProblem(
+        teacherUserId: UUID,
+        problemId: UUID,
+    ) {
+        val teacherId = findTeacherId(teacherUserId)
+        val problem = problemRepository.findActiveByIdAndOwnerTeacherIdForUpdate(problemId, teacherId)
+            ?: throw ApiException(ErrorCode.NOT_FOUND, "문제를 찾을 수 없습니다.")
+        problem.archivedAt = Instant.now()
+        problem.archivedBy = teacherUserId
+        problemRepository.save(problem)
+    }
+
     private fun replaceBlocksAndExplanations(
         teacherUserId: UUID,
         problemId: UUID,
@@ -165,6 +236,19 @@ class ProblemBankService(
         }
         problemExplanationRepository.saveAll(activeExplanations)
     }
+
+    private fun archiveExplanation(
+        explanation: ProblemExplanation,
+        problemId: UUID,
+    ) {
+        val minSortOrder = problemExplanationRepository.findMinSortOrderByProblemId(problemId) ?: 0
+        explanation.archivedAt = Instant.now()
+        explanation.sortOrder = minSortOrder - 1
+        problemExplanationRepository.saveAndFlush(explanation)
+    }
+
+    private fun nextActiveExplanationSortOrder(problemId: UUID): Int =
+        (problemExplanationRepository.findMaxActiveSortOrderByProblemId(problemId) ?: 0) + 1
 
     private fun detail(
         problemId: UUID,
