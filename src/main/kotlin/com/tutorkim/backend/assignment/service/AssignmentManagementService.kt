@@ -228,8 +228,10 @@ class AssignmentManagementService(
                 }
                 .groupBy { it.problemId }
         }
-        val submission = assignmentSubmissionRepository.findByAssignmentId(assignment.id!!)
-            .singleOrNull { it.teacherStudentId == relationship.id!! }
+        val submission = assignmentSubmissionRepository.findByAssignmentIdAndTeacherStudentId(
+            assignmentId = assignment.id!!,
+            teacherStudentId = relationship.id!!,
+        )
         val answersByProblemId = if (submission == null || problemIds.isEmpty()) {
             emptyMap()
         } else {

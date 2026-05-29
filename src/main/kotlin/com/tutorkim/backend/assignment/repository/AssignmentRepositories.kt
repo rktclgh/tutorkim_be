@@ -88,6 +88,11 @@ interface AssignmentTargetRepository : JpaRepository<AssignmentTarget, UUID> {
 interface AssignmentSubmissionRepository : JpaRepository<AssignmentSubmission, UUID> {
 	fun findByAssignmentId(assignmentId: UUID): List<AssignmentSubmission>
 
+	fun findByAssignmentIdAndTeacherStudentId(
+		assignmentId: UUID,
+		teacherStudentId: UUID,
+	): AssignmentSubmission?
+
 	fun findByAssignmentIdIn(assignmentIds: Collection<UUID>): List<AssignmentSubmission>
 
 	fun existsByAssignmentIdAndTeacherStudentId(
