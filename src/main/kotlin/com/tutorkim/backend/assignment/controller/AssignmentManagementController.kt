@@ -1,5 +1,6 @@
 package com.tutorkim.backend.assignment.controller
 
+import com.tutorkim.backend.assignment.dto.AssignmentDetailResponse
 import com.tutorkim.backend.assignment.dto.AssignmentSummaryResponse
 import com.tutorkim.backend.assignment.dto.CreateAssignmentRequest
 import com.tutorkim.backend.assignment.entity.AssignmentStatus
@@ -58,6 +59,16 @@ class AssignmentManagementController(
             type = type,
             status = status,
             limit = limit,
+        )
+
+    @GetMapping("/assignments/{assignmentId}")
+    fun getAssignmentDetail(
+        authentication: Authentication,
+        @PathVariable assignmentId: UUID,
+    ): AssignmentDetailResponse =
+        assignmentManagementService.getDetail(
+            teacherUserId = currentUserId(authentication),
+            assignmentId = assignmentId,
         )
 
     private fun currentUserId(authentication: Authentication): UUID =

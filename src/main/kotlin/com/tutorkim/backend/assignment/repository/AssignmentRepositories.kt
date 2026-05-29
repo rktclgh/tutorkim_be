@@ -17,6 +17,11 @@ import org.springframework.data.repository.query.Param
 import java.util.UUID
 
 interface AssignmentRepository : JpaRepository<Assignment, UUID> {
+	fun findByIdAndTeacherId(
+		id: UUID,
+		teacherId: UUID,
+	): Assignment?
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query(
 		"""
@@ -54,6 +59,8 @@ interface AssignmentRepository : JpaRepository<Assignment, UUID> {
 }
 
 interface AssignmentProblemRepository : JpaRepository<AssignmentProblem, UUID> {
+	fun findByAssignmentIdOrderBySortOrderAsc(assignmentId: UUID): List<AssignmentProblem>
+
 	fun countByAssignmentId(assignmentId: UUID): Int
 
 	@Query(
@@ -79,6 +86,13 @@ interface AssignmentTargetRepository : JpaRepository<AssignmentTarget, UUID> {
 }
 
 interface AssignmentSubmissionRepository : JpaRepository<AssignmentSubmission, UUID> {
+	fun findByAssignmentId(assignmentId: UUID): List<AssignmentSubmission>
+
+	fun findByAssignmentIdAndTeacherStudentId(
+		assignmentId: UUID,
+		teacherStudentId: UUID,
+	): AssignmentSubmission?
+
 	fun findByAssignmentIdIn(assignmentIds: Collection<UUID>): List<AssignmentSubmission>
 
 	fun existsByAssignmentIdAndTeacherStudentId(
@@ -87,6 +101,13 @@ interface AssignmentSubmissionRepository : JpaRepository<AssignmentSubmission, U
 	): Boolean
 }
 
-interface SubmissionAnswerRepository : JpaRepository<SubmissionAnswer, UUID>
+interface SubmissionAnswerRepository : JpaRepository<SubmissionAnswer, UUID> {
+	fun findBySubmissionIdAndProblemIdIn(
+		submissionId: UUID,
+		problemIds: Collection<UUID>,
+	): List<SubmissionAnswer>
+}
 
-interface SubmissionSolutionFileRepository : JpaRepository<SubmissionSolutionFile, UUID>
+interface SubmissionSolutionFileRepository : JpaRepository<SubmissionSolutionFile, UUID> {
+	fun findBySubmissionAnswerIdIn(submissionAnswerIds: Collection<UUID>): List<SubmissionSolutionFile>
+}
