@@ -1,5 +1,7 @@
 package com.tutorkim.backend.assignment.service
 
+import com.tutorkim.backend.assignment.dto.AssignmentDetailResponse
+import com.tutorkim.backend.assignment.dto.AssignmentProblemDetailResponse
 import com.tutorkim.backend.assignment.dto.AssignmentSummaryResponse
 import com.tutorkim.backend.assignment.dto.CreateAssignmentRequest
 import com.tutorkim.backend.assignment.entity.Assignment
@@ -13,10 +15,16 @@ import com.tutorkim.backend.assignment.repository.AssignmentProblemRepository
 import com.tutorkim.backend.assignment.repository.AssignmentRepository
 import com.tutorkim.backend.assignment.repository.AssignmentSubmissionRepository
 import com.tutorkim.backend.assignment.repository.AssignmentTargetRepository
+import com.tutorkim.backend.assignment.repository.SubmissionAnswerRepository
+import com.tutorkim.backend.assignment.repository.SubmissionSolutionFileRepository
 import com.tutorkim.backend.common.exception.ApiException
 import com.tutorkim.backend.common.exception.ErrorCode
 import com.tutorkim.backend.lesson.repository.LessonSessionRepository
+import com.tutorkim.backend.problem.dto.ProblemBlockResponse
 import com.tutorkim.backend.problem.entity.Problem
+import com.tutorkim.backend.problem.entity.ProblemExplanationSourceType
+import com.tutorkim.backend.problem.repository.ProblemBlockRepository
+import com.tutorkim.backend.problem.repository.ProblemExplanationRepository
 import com.tutorkim.backend.problem.repository.ProblemRepository
 import com.tutorkim.backend.student.entity.TeacherStudent
 import com.tutorkim.backend.student.repository.TeacherProfileRepository
@@ -37,10 +45,14 @@ class AssignmentManagementService(
     private val teacherStudentSubjectRepository: TeacherStudentSubjectRepository,
     private val lessonSessionRepository: LessonSessionRepository,
     private val problemRepository: ProblemRepository,
+    private val problemBlockRepository: ProblemBlockRepository,
+    private val problemExplanationRepository: ProblemExplanationRepository,
     private val assignmentRepository: AssignmentRepository,
     private val assignmentProblemRepository: AssignmentProblemRepository,
     private val assignmentTargetRepository: AssignmentTargetRepository,
     private val assignmentSubmissionRepository: AssignmentSubmissionRepository,
+    private val submissionAnswerRepository: SubmissionAnswerRepository,
+    private val submissionSolutionFileRepository: SubmissionSolutionFileRepository,
     private val assignmentAvailabilityPolicy: AssignmentAvailabilityPolicy = AssignmentAvailabilityPolicy(),
 ) {
     @Transactional
@@ -185,6 +197,85 @@ class AssignmentManagementService(
         }
     }
 
+    @Transactional(readOnly = true)
+    fun getDetail(
+        teacherUserId: UUID,
+        assignmentId: UUID,
+    ): AssignmentDetailResponse {
+        val teacherId = findTeacherId(teacherUserId)
+        val assignment = assignmentRepository.findByIdAndTeacherId(assignmentId, teacherId)
+            ?: throw ApiException(ErrorCode.NOT_FOUND, "과제를 찾을 수 없습니다.")
+        val relationship = findHistoricalRelationship(assignment.teacherStudentId!!, teacherId)
+        val assignmentProblems = assignmentProblemRepository.findByAssignmentIdOrderBySortOrderAsc(assignment.id!!)
+        val problemIds = assignmentProblems.map { it.problemId }
+        val problemsById = if (problemIds.isEmpty()) {
+            emptyMap()
+        } else {
+            problemRepository.findAllById(problemIds).associateBy { it.id!! }
+        }
+        val blocksByProblemId = if (problemIds.isEmpty()) {
+            emptyMap()
+        } else {
+            problemBlockRepository.findByProblemIdIn(problemIds).groupBy { it.problemId }
+        }
+        val teacherSolutionFilesByProblemId = if (problemIds.isEmpty()) {
+            emptyMap()
+        } else {
+            problemExplanationRepository.findActiveByProblemIdIn(problemIds)
+                .filter {
+                    it.sourceType == ProblemExplanationSourceType.TEACHER_SOLUTION_IMAGE &&
+                        it.fileAssetId != null
+                }
+                .groupBy { it.problemId }
+        }
+        val submission = assignmentSubmissionRepository.findByAssignmentId(assignment.id!!)
+            .singleOrNull { it.teacherStudentId == relationship.id!! }
+        val answersByProblemId = if (submission == null || problemIds.isEmpty()) {
+            emptyMap()
+        } else {
+            submissionAnswerRepository.findBySubmissionIdAndProblemIdIn(
+                submissionId = submission.id!!,
+                problemIds = problemIds,
+            ).associateBy { answer -> answer.problemId }
+        }
+        val studentSolutionFilesByAnswerId = if (answersByProblemId.isEmpty()) {
+            emptyMap()
+        } else {
+            submissionSolutionFileRepository.findBySubmissionAnswerIdIn(answersByProblemId.values.map { it.id!! })
+                .groupBy { it.submissionAnswerId }
+        }
+        val now = Instant.now()
+        val submissionStatus = submission?.status ?: SubmissionStatus.NOT_SUBMITTED
+        val availability = AssignmentAvailability(
+            status = assignment.status,
+            dueAt = assignment.dueAt,
+            submissionStatus = submissionStatus,
+        )
+        val canSolve = relationship.active && relationship.student.deletedAt == null &&
+            assignmentAvailabilityPolicy.canSolve(availability, now)
+
+        return AssignmentDetailResponse.from(
+            assignment = assignment,
+            student = relationship.student,
+            expired = assignmentAvailabilityPolicy.isExpired(assignment.dueAt, now),
+            canSolve = canSolve,
+            submissionStatus = submissionStatus,
+            problems = assignmentProblems.map { assignmentProblem ->
+                val problem = problemsById[assignmentProblem.problemId]
+                    ?: throw ApiException(ErrorCode.NOT_FOUND, "과제 문제를 찾을 수 없습니다.")
+                val answer = answersByProblemId[assignmentProblem.problemId]
+                AssignmentProblemDetailResponse.from(
+                    assignmentProblem = assignmentProblem,
+                    problem = problem,
+                    blocks = blocksByProblemId[assignmentProblem.problemId].orEmpty().map(ProblemBlockResponse::from),
+                    answer = answer,
+                    studentSolutionFiles = answer?.id?.let { studentSolutionFilesByAnswerId[it] }.orEmpty(),
+                    teacherSolutionFiles = teacherSolutionFilesByProblemId[assignmentProblem.problemId].orEmpty(),
+                )
+            },
+        )
+    }
+
     private fun validateLessonSession(
         teacherUserId: UUID,
         relationship: TeacherStudent,
@@ -257,6 +348,14 @@ class AssignmentManagementService(
         teacherStudentRepository.findById(teacherStudentId)
             .filter { it.teacher.id == teacherId && it.active && it.student.deletedAt == null }
             .orElseThrow { ApiException(ErrorCode.NOT_FOUND, "활성 학생 관계를 찾을 수 없습니다.") }
+
+    private fun findHistoricalRelationship(
+        teacherStudentId: UUID,
+        teacherId: UUID,
+    ): TeacherStudent =
+        teacherStudentRepository.findById(teacherStudentId)
+            .filter { it.teacher.id == teacherId }
+            .orElseThrow { ApiException(ErrorCode.NOT_FOUND, "학생 관계를 찾을 수 없습니다.") }
 
     private fun findTeacherId(teacherUserId: UUID): UUID =
         teacherProfileRepository.findByUser_Id(teacherUserId)?.id

@@ -179,6 +179,17 @@ interface ProblemExplanationRepository : JpaRepository<ProblemExplanation, UUID>
 
 	fun findByProblemIdAndArchivedAtIsNullOrderBySortOrderAsc(problemId: UUID): List<ProblemExplanation>
 
+	@Query(
+		"""
+		select explanation
+		from ProblemExplanation explanation
+		where explanation.problemId in :problemIds
+		  and explanation.archivedAt is null
+		order by explanation.problemId asc, explanation.sortOrder asc
+		""",
+	)
+	fun findActiveByProblemIdIn(@Param("problemIds") problemIds: Collection<UUID>): List<ProblemExplanation>
+
 	fun findByIdAndProblemIdAndArchivedAtIsNull(
 		id: UUID,
 		problemId: UUID,

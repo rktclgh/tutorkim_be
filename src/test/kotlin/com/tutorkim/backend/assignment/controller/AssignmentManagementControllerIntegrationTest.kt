@@ -1,13 +1,20 @@
 package com.tutorkim.backend.assignment.controller
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.tutorkim.backend.assignment.entity.ProblemAttemptStatus
+import com.tutorkim.backend.assignment.entity.SubmissionAnswer
+import com.tutorkim.backend.assignment.entity.SubmissionSolutionFile
 import com.tutorkim.backend.assignment.entity.AssignmentStatus
 import com.tutorkim.backend.assignment.repository.AssignmentProblemRepository
 import com.tutorkim.backend.assignment.repository.AssignmentRepository
+import com.tutorkim.backend.assignment.repository.SubmissionAnswerRepository
 import com.tutorkim.backend.assignment.repository.AssignmentSubmissionRepository
 import com.tutorkim.backend.assignment.repository.AssignmentTargetRepository
+import com.tutorkim.backend.assignment.repository.SubmissionSolutionFileRepository
 import com.tutorkim.backend.content.entity.CurriculumNode
 import com.tutorkim.backend.content.repository.CurriculumNodeRepository
+import com.tutorkim.backend.file.entity.FileAsset
+import com.tutorkim.backend.file.repository.FileAssetRepository
 import com.tutorkim.backend.identity.entity.User
 import com.tutorkim.backend.identity.entity.UserRole
 import com.tutorkim.backend.identity.repository.UserRepository
@@ -18,7 +25,10 @@ import com.tutorkim.backend.problem.entity.Problem
 import com.tutorkim.backend.problem.entity.ProblemAnswerType
 import com.tutorkim.backend.problem.entity.ProblemBlock
 import com.tutorkim.backend.problem.entity.ProblemBlockType
+import com.tutorkim.backend.problem.entity.ProblemExplanation
+import com.tutorkim.backend.problem.entity.ProblemExplanationSourceType
 import com.tutorkim.backend.problem.repository.ProblemBlockRepository
+import com.tutorkim.backend.problem.repository.ProblemExplanationRepository
 import com.tutorkim.backend.problem.repository.ProblemRepository
 import com.tutorkim.backend.student.entity.StudentProfile
 import com.tutorkim.backend.student.entity.TeacherProfile
@@ -58,10 +68,14 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
     private val lessonSessionRepository: LessonSessionRepository,
     private val problemRepository: ProblemRepository,
     private val problemBlockRepository: ProblemBlockRepository,
+    private val problemExplanationRepository: ProblemExplanationRepository,
+    private val fileAssetRepository: FileAssetRepository,
     private val assignmentRepository: AssignmentRepository,
     private val assignmentProblemRepository: AssignmentProblemRepository,
     private val assignmentTargetRepository: AssignmentTargetRepository,
     private val assignmentSubmissionRepository: AssignmentSubmissionRepository,
+    private val submissionAnswerRepository: SubmissionAnswerRepository,
+    private val submissionSolutionFileRepository: SubmissionSolutionFileRepository,
 ) {
     private val objectMapper = jacksonObjectMapper()
 
@@ -183,6 +197,126 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
     }
 
     @Test
+    fun `teacher gets assignment detail with ordered problems answers and solution files`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val problems = createProblems(fixture.teacherProfile.id!!, fixture.math.id!!, 2)
+        val assignmentId = createDraftThroughApi(fixture, problems.map { it.id!! })
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        val submission = assignmentSubmissionRepository.findAll().single { it.assignmentId == assignmentId }
+        val answer = submissionAnswerRepository.save(
+            SubmissionAnswer(
+                submissionId = submission.id!!,
+                problemId = problems[0].id!!,
+                selectedChoiceNumbers = listOf(1.toShort()),
+                attemptStatus = ProblemAttemptStatus.CORRECT_FIRST,
+                retryCount = 0,
+                autoIsCorrect = true,
+                isCorrect = true,
+                autoGradedAt = Instant.now(),
+            ),
+        )
+        val studentSolutionFile = createFileAsset(fixture.studentUser.id!!, "student-solution")
+        submissionSolutionFileRepository.save(
+            SubmissionSolutionFile(
+                submissionAnswerId = answer.id!!,
+                fileAssetId = studentSolutionFile.id!!,
+            ),
+        )
+        val teacherSolutionFile = createFileAsset(fixture.teacherUser.id!!, "teacher-solution")
+        val explanation = problemExplanationRepository.save(
+            ProblemExplanation(
+                problemId = problems[0].id!!,
+                sortOrder = 1,
+                sourceType = ProblemExplanationSourceType.TEACHER_SOLUTION_IMAGE,
+                fileAssetId = teacherSolutionFile.id!!,
+                visibleToStudent = true,
+                createdBy = fixture.teacherUser.id!!,
+            ),
+        )
+
+        mockMvc.get("/api/v1/assignments/$assignmentId") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.id") { value(assignmentId.toString()) }
+            jsonPath("$.data.title") { value(fixture.assignmentTitle) }
+            jsonPath("$.data.assignmentType") { value("HOMEWORK") }
+            jsonPath("$.data.student.id") { value(fixture.studentProfile.id!!.toString()) }
+            jsonPath("$.data.subjectId") { value(fixture.math.id!!.toString()) }
+            jsonPath("$.data.expired") { value(false) }
+            jsonPath("$.data.canSolve") { value(true) }
+            jsonPath("$.data.questionCount") { value(0) }
+            jsonPath("$.data.status") { value("PUBLISHED") }
+            jsonPath("$.data.submissionStatus") { value("NOT_SUBMITTED") }
+            jsonPath("$.data.resultVisibility") { value("HIDDEN_UNTIL_RELEASED") }
+            jsonPath("$.data.problems.length()") { value(2) }
+            jsonPath("$.data.problems[0].number") { value(1) }
+            jsonPath("$.data.problems[0].assignmentProblemId") { exists() }
+            jsonPath("$.data.problems[0].problemId") { value(problems[0].id!!.toString()) }
+            jsonPath("$.data.problems[0].points") { value(1) }
+            jsonPath("$.data.problems[0].blocks.length()") { value(1) }
+            jsonPath("$.data.problems[0].blocks[0].text") { value("문제 1") }
+            jsonPath("$.data.problems[0].answerType") { value("SINGLE_CHOICE") }
+            jsonPath("$.data.problems[0].attemptStatus") { value("CORRECT_FIRST") }
+            jsonPath("$.data.problems[0].retryCount") { value(0) }
+            jsonPath("$.data.problems[0].studentAnswer.selectedChoiceNumbers[0]") { value(1) }
+            jsonPath("$.data.problems[0].studentAnswer.unknown") { value(false) }
+            jsonPath("$.data.problems[0].studentSolutionFiles[0].fileAssetId") { value(studentSolutionFile.id!!.toString()) }
+            jsonPath("$.data.problems[0].studentSolutionFiles[0].uploadedAt") { exists() }
+            jsonPath("$.data.problems[0].teacherSolutionFiles[0].explanationId") { value(explanation.id!!.toString()) }
+            jsonPath("$.data.problems[0].teacherSolutionFiles[0].fileAssetId") { value(teacherSolutionFile.id!!.toString()) }
+            jsonPath("$.data.problems[0].teacherSolutionFiles[0].visibleToStudent") { value(true) }
+            jsonPath("$.data.problems[1].number") { value(2) }
+            jsonPath("$.data.problems[1].problemId") { value(problems[1].id!!.toString()) }
+            jsonPath("$.data.problems[1].attemptStatus") { value("PENDING") }
+            jsonPath("$.data.problems[1].retryCount") { value(0) }
+            jsonPath("$.data.problems[1].studentAnswer") { doesNotExist() }
+            jsonPath("$.data.problems[1].studentSolutionFiles.length()") { value(0) }
+            jsonPath("$.data.problems[1].teacherSolutionFiles.length()") { value(0) }
+        }
+    }
+
+    @Test
+    fun `teacher gets historical assignment detail after relationship deactivation and problem archive`() {
+        val fixture = createFixture()
+        val relationship = createRelationship(fixture)
+        val problem = createProblems(fixture.teacherProfile.id!!, fixture.math.id!!, 1).single()
+        val assignmentId = createDraftThroughApi(fixture, listOf(problem.id!!))
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        relationship.active = false
+        teacherStudentRepository.saveAndFlush(relationship)
+        problem.archivedAt = Instant.now()
+        problem.archivedBy = fixture.teacherUser.id!!
+        problemRepository.saveAndFlush(problem)
+
+        mockMvc.get("/api/v1/assignments/$assignmentId") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.id") { value(assignmentId.toString()) }
+            jsonPath("$.data.canSolve") { value(false) }
+            jsonPath("$.data.problems.length()") { value(1) }
+            jsonPath("$.data.problems[0].problemId") { value(problem.id!!.toString()) }
+            jsonPath("$.data.problems[0].blocks[0].text") { value("문제 1") }
+        }
+    }
+
+    @Test
     fun `assignment list rejects invalid filters as bad request`() {
         val fixture = createFixture()
 
@@ -291,6 +425,20 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
         }.andExpect {
             status { isForbidden() }
             jsonPath("$.error.code") { value("FORBIDDEN") }
+        }
+
+        mockMvc.get("/api/v1/assignments/$assignmentId") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.code") { value("FORBIDDEN") }
+        }
+
+        mockMvc.get("/api/v1/assignments/$assignmentId") {
+            with(user(otherFixture.teacherUser.id!!.toString()).roles("TEACHER"))
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
         }
 
         mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
@@ -418,6 +566,20 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
             problem
         }
     }
+
+    private fun createFileAsset(
+        ownerUserId: UUID,
+        label: String,
+    ): FileAsset =
+        fileAssetRepository.save(
+            FileAsset(
+                ownerUserId = ownerUserId,
+                storageKey = "assignment-detail/$label-${UUID.randomUUID()}.png",
+                originalFilename = "$label.png",
+                contentType = "image/png",
+                sizeBytes = 128,
+            ),
+        )
 
     private fun createLabelFixture(subjectId: UUID): LabelFixture {
         val depth1 = curriculumNodeRepository.save(CurriculumNode(subjectId = subjectId, depth = 1, name = "대단원-${UUID.randomUUID()}", system = true))
