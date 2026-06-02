@@ -45,6 +45,16 @@ class AssignmentManagementController(
             assignmentId = assignmentId,
         )
 
+    @PostMapping("/assignments/{assignmentId}/release-results")
+    fun releaseAssignmentResults(
+        authentication: Authentication,
+        @PathVariable assignmentId: UUID,
+    ): AssignmentDetailResponse =
+        assignmentManagementService.releaseResults(
+            teacherUserId = currentUserId(authentication),
+            assignmentId = assignmentId,
+        )
+
     @GetMapping("/assignments")
     fun listAssignments(
         authentication: Authentication,

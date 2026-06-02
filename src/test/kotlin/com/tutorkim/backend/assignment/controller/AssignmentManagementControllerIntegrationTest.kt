@@ -2,6 +2,7 @@ package com.tutorkim.backend.assignment.controller
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.tutorkim.backend.assignment.entity.ProblemAttemptStatus
+import com.tutorkim.backend.assignment.entity.ResultVisibility
 import com.tutorkim.backend.assignment.entity.SubmissionAnswer
 import com.tutorkim.backend.assignment.entity.SubmissionSolutionFile
 import com.tutorkim.backend.assignment.entity.AssignmentStatus
@@ -166,6 +167,45 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
     }
 
     @Test
+    fun `teacher releases published hidden assignment results`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val problems = createProblems(fixture.teacherProfile.id!!, fixture.math.id!!, 1)
+        val assignmentId = createDraftThroughApi(fixture, problems.map { it.id!! })
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+        val publishedUpdatedAt = assignmentRepository.findById(assignmentId).orElseThrow().updatedAt
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/release-results") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.id") { value(assignmentId.toString()) }
+            jsonPath("$.data.status") { value("PUBLISHED") }
+            jsonPath("$.data.resultVisibility") { value("RELEASED") }
+            jsonPath("$.data.submissionStatus") { value("NOT_SUBMITTED") }
+            jsonPath("$.data.problems.length()") { value(1) }
+        }
+
+        val releasedAssignment = assignmentRepository.findById(assignmentId).orElseThrow()
+        assertThat(releasedAssignment.resultVisibility).isEqualTo(ResultVisibility.RELEASED)
+        assertThat(releasedAssignment.updatedAt).isAfter(publishedUpdatedAt)
+
+        mockMvc.get("/api/v1/assignments/$assignmentId") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.resultVisibility") { value("RELEASED") }
+        }
+    }
+
+    @Test
     fun `teacher still lists historical assignments after relationship deactivation`() {
         val fixture = createFixture()
         val relationship = createRelationship(fixture)
@@ -317,6 +357,100 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
     }
 
     @Test
+    fun `release results rejects draft and already released assignment`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val problems = createProblems(fixture.teacherProfile.id!!, fixture.math.id!!, 1)
+        val assignmentId = createDraftThroughApi(fixture, problems.map { it.id!! })
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/release-results") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.error.code") { value("CONFLICT") }
+            jsonPath("$.error.message") { value("발행된 과제만 결과를 공개할 수 있습니다.") }
+        }
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/release-results") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/release-results") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.error.code") { value("CONFLICT") }
+            jsonPath("$.error.message") { value("이미 공개된 과제 결과입니다.") }
+        }
+
+        val archivedFixture = createFixture()
+        createRelationship(archivedFixture)
+        val archivedProblem = createProblems(archivedFixture.teacherProfile.id!!, archivedFixture.math.id!!, 1).single()
+        val archivedAssignmentId = createDraftThroughApi(archivedFixture, listOf(archivedProblem.id!!))
+        val archivedAssignment = assignmentRepository.findById(archivedAssignmentId).orElseThrow()
+        archivedAssignment.status = AssignmentStatus.ARCHIVED
+        assignmentRepository.saveAndFlush(archivedAssignment)
+
+        mockMvc.post("/api/v1/assignments/$archivedAssignmentId/release-results") {
+            with(user(archivedFixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.error.code") { value("CONFLICT") }
+            jsonPath("$.error.message") { value("발행된 과제만 결과를 공개할 수 있습니다.") }
+        }
+
+        val visibleFixture = createFixture()
+        createRelationship(visibleFixture)
+        val visibleProblem = createProblems(visibleFixture.teacherProfile.id!!, visibleFixture.math.id!!, 1).single()
+        val visibleAssignmentId = createDraftThroughApi(visibleFixture, listOf(visibleProblem.id!!))
+
+        mockMvc.post("/api/v1/assignments/$visibleAssignmentId/publish") {
+            with(user(visibleFixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+        val visibleAssignment = assignmentRepository.findById(visibleAssignmentId).orElseThrow()
+        visibleAssignment.resultVisibility = ResultVisibility.IMMEDIATE
+        assignmentRepository.saveAndFlush(visibleAssignment)
+
+        mockMvc.post("/api/v1/assignments/$visibleAssignmentId/release-results") {
+            with(user(visibleFixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.error.code") { value("CONFLICT") }
+            jsonPath("$.error.message") { value("이미 공개된 과제 결과입니다.") }
+        }
+
+        visibleAssignment.status = AssignmentStatus.CLOSED
+        visibleAssignment.resultVisibility = ResultVisibility.HIDDEN_UNTIL_RELEASED
+        assignmentRepository.saveAndFlush(visibleAssignment)
+
+        mockMvc.post("/api/v1/assignments/$visibleAssignmentId/release-results") {
+            with(user(visibleFixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.status") { value("CLOSED") }
+            jsonPath("$.data.resultVisibility") { value("RELEASED") }
+        }
+    }
+
+    @Test
     fun `assignment list rejects invalid filters as bad request`() {
         val fixture = createFixture()
 
@@ -434,8 +568,24 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
             jsonPath("$.error.code") { value("FORBIDDEN") }
         }
 
+        mockMvc.post("/api/v1/assignments/$assignmentId/release-results") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.code") { value("FORBIDDEN") }
+        }
+
         mockMvc.get("/api/v1/assignments/$assignmentId") {
             with(user(otherFixture.teacherUser.id!!.toString()).roles("TEACHER"))
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+        }
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/release-results") {
+            with(user(otherFixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
         }.andExpect {
             status { isNotFound() }
             jsonPath("$.error.code") { value("NOT_FOUND") }
