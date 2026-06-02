@@ -357,6 +357,183 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
     }
 
     @Test
+    fun `student lists own published assignments with answered count and expiry filter`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val expiredProblem = createProblems(fixture.teacherProfile.id!!, fixture.math.id!!, 1).single()
+        val currentProblems = createProblems(fixture.teacherProfile.id!!, fixture.math.id!!, 2)
+        val expiredAssignmentId = createDraftThroughApi(
+            fixture = fixture,
+            problemIds = listOf(expiredProblem.id!!),
+            title = "${fixture.assignmentTitle}-expired",
+            dueAt = "2020-05-20T23:59:00+09:00",
+        )
+
+        mockMvc.post("/api/v1/assignments/$expiredAssignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        val currentAssignmentId = createDraftThroughApi(fixture, currentProblems.map { it.id!! })
+
+        mockMvc.post("/api/v1/assignments/$currentAssignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        val submission = assignmentSubmissionRepository.findAll().single { it.assignmentId == currentAssignmentId }
+        submissionAnswerRepository.save(
+            SubmissionAnswer(
+                submissionId = submission.id!!,
+                problemId = currentProblems[0].id!!,
+                selectedChoiceNumbers = listOf(1.toShort()),
+                attemptStatus = ProblemAttemptStatus.CORRECT_FIRST,
+                autoIsCorrect = true,
+                isCorrect = true,
+                autoGradedAt = Instant.now(),
+            ),
+        )
+
+        mockMvc.get("/api/v1/student/assignments") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.length()") { value(1) }
+            jsonPath("$.data[0].id") { value(currentAssignmentId.toString()) }
+            jsonPath("$.data[0].title") { value(fixture.assignmentTitle) }
+            jsonPath("$.data[0].teacher.id") { value(fixture.teacherProfile.id!!.toString()) }
+            jsonPath("$.data[0].teacher.name") { value(fixture.teacherProfile.displayName) }
+            jsonPath("$.data[0].subject.id") { value(fixture.math.id!!.toString()) }
+            jsonPath("$.data[0].subject.name") { value(fixture.math.name) }
+            jsonPath("$.data[0].assignmentType") { value("HOMEWORK") }
+            jsonPath("$.data[0].expired") { value(false) }
+            jsonPath("$.data[0].canSolve") { value(true) }
+            jsonPath("$.data[0].problemCount") { value(2) }
+            jsonPath("$.data[0].answeredCount") { value(1) }
+            jsonPath("$.data[0].questionCount") { value(0) }
+            jsonPath("$.data[0].submissionStatus") { value("NOT_SUBMITTED") }
+        }
+
+        mockMvc.get("/api/v1/student/assignments") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            param("includeExpired", "true")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.length()") { value(2) }
+            jsonPath("$.data[0].id") { value(currentAssignmentId.toString()) }
+            jsonPath("$.data[1].id") { value(expiredAssignmentId.toString()) }
+            jsonPath("$.data[1].expired") { value(true) }
+            jsonPath("$.data[1].canSolve") { value(false) }
+        }
+    }
+
+    @Test
+    fun `student gets own assignment detail with visible teacher solution files only`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val otherFixture = createFixture()
+        createRelationship(otherFixture)
+        val problems = createProblems(fixture.teacherProfile.id!!, fixture.math.id!!, 2)
+        val assignmentId = createDraftThroughApi(fixture, problems.map { it.id!! })
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        val submission = assignmentSubmissionRepository.findAll().single { it.assignmentId == assignmentId }
+        val answer = submissionAnswerRepository.save(
+            SubmissionAnswer(
+                submissionId = submission.id!!,
+                problemId = problems[0].id!!,
+                selectedChoiceNumbers = listOf(1.toShort()),
+                attemptStatus = ProblemAttemptStatus.CORRECT_FIRST,
+                autoIsCorrect = true,
+                isCorrect = true,
+                autoGradedAt = Instant.now(),
+            ),
+        )
+        val studentSolutionFile = createFileAsset(fixture.studentUser.id!!, "student-detail-solution")
+        submissionSolutionFileRepository.save(
+            SubmissionSolutionFile(
+                submissionAnswerId = answer.id!!,
+                fileAssetId = studentSolutionFile.id!!,
+            ),
+        )
+        val visibleTeacherSolutionFile = createFileAsset(fixture.teacherUser.id!!, "visible-teacher-solution")
+        val hiddenTeacherSolutionFile = createFileAsset(fixture.teacherUser.id!!, "hidden-teacher-solution")
+        val visibleExplanation = problemExplanationRepository.save(
+            ProblemExplanation(
+                problemId = problems[0].id!!,
+                sortOrder = 1,
+                sourceType = ProblemExplanationSourceType.TEACHER_SOLUTION_IMAGE,
+                fileAssetId = visibleTeacherSolutionFile.id!!,
+                visibleToStudent = true,
+                createdBy = fixture.teacherUser.id!!,
+            ),
+        )
+        problemExplanationRepository.save(
+            ProblemExplanation(
+                problemId = problems[0].id!!,
+                sortOrder = 2,
+                sourceType = ProblemExplanationSourceType.TEACHER_SOLUTION_IMAGE,
+                fileAssetId = hiddenTeacherSolutionFile.id!!,
+                visibleToStudent = false,
+                createdBy = fixture.teacherUser.id!!,
+            ),
+        )
+
+        mockMvc.get("/api/v1/student/assignments/$assignmentId") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.id") { value(assignmentId.toString()) }
+            jsonPath("$.data.title") { value(fixture.assignmentTitle) }
+            jsonPath("$.data.teacher.id") { value(fixture.teacherProfile.id!!.toString()) }
+            jsonPath("$.data.teacher.name") { value(fixture.teacherProfile.displayName) }
+            jsonPath("$.data.subject.id") { value(fixture.math.id!!.toString()) }
+            jsonPath("$.data.subject.name") { value(fixture.math.name) }
+            jsonPath("$.data.expired") { value(false) }
+            jsonPath("$.data.canSolve") { value(true) }
+            jsonPath("$.data.status") { value("PUBLISHED") }
+            jsonPath("$.data.submissionStatus") { value("NOT_SUBMITTED") }
+            jsonPath("$.data.resultVisibility") { value("HIDDEN_UNTIL_RELEASED") }
+            jsonPath("$.data.problems.length()") { value(2) }
+            jsonPath("$.data.problems[0].problemId") { value(problems[0].id!!.toString()) }
+            jsonPath("$.data.problems[0].blocks[0].text") { value("문제 1") }
+            jsonPath("$.data.problems[0].attemptStatus") { value("CORRECT_FIRST") }
+            jsonPath("$.data.problems[0].studentAnswer.selectedChoiceNumbers[0]") { value(1) }
+            jsonPath("$.data.problems[0].studentSolutionFiles[0].fileAssetId") { value(studentSolutionFile.id!!.toString()) }
+            jsonPath("$.data.problems[0].teacherSolutionFiles.length()") { value(1) }
+            jsonPath("$.data.problems[0].teacherSolutionFiles[0].explanationId") { value(visibleExplanation.id!!.toString()) }
+            jsonPath("$.data.problems[0].teacherSolutionFiles[0].fileAssetId") { value(visibleTeacherSolutionFile.id!!.toString()) }
+            jsonPath("$.data.problems[0].teacherSolutionFiles[0].visibleToStudent") { value(true) }
+            jsonPath("$.data.problems[1].problemId") { value(problems[1].id!!.toString()) }
+            jsonPath("$.data.problems[1].attemptStatus") { value("PENDING") }
+        }
+
+        mockMvc.get("/api/v1/student/assignments/$assignmentId") {
+            with(user(otherFixture.studentUser.id!!.toString()).roles("STUDENT"))
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+        }
+
+        mockMvc.get("/api/v1/student/assignments/$assignmentId") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.code") { value("FORBIDDEN") }
+        }
+    }
+
+    @Test
     fun `release results rejects draft and already released assignment`() {
         val fixture = createFixture()
         createRelationship(fixture)
@@ -619,17 +796,19 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
     private fun createDraftThroughApi(
         fixture: Fixture,
         problemIds: List<UUID>,
+        title: String = fixture.assignmentTitle,
+        dueAt: String = "2030-05-20T23:59:00+09:00",
     ): UUID {
         mockMvc.post("/api/v1/assignments") {
             with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
             with(csrf())
             contentType = MediaType.APPLICATION_JSON
-            content = createAssignmentBody(fixture, problemIds)
+            content = createAssignmentBody(fixture, problemIds, title = title, dueAt = dueAt)
         }.andExpect {
             status { isOk() }
         }
         return assignmentRepository.findAll()
-            .single { it.title == fixture.assignmentTitle && it.teacherId == fixture.teacherProfile.id!! }
+            .single { it.title == title && it.teacherId == fixture.teacherProfile.id!! }
             .id!!
     }
 
@@ -638,16 +817,18 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
         problemIds: List<UUID>,
         lessonSessionId: UUID? = null,
         subjectId: UUID = fixture.math.id!!,
+        title: String = fixture.assignmentTitle,
+        dueAt: String = "2030-05-20T23:59:00+09:00",
     ): String =
         objectMapper.writeValueAsString(
             mapOf(
                 "studentId" to fixture.studentProfile.id!!.toString(),
                 "lessonSessionId" to lessonSessionId?.toString(),
                 "subjectId" to subjectId.toString(),
-                "title" to fixture.assignmentTitle,
+                "title" to title,
                 "assignmentType" to "HOMEWORK",
                 "resultVisibility" to "HIDDEN_UNTIL_RELEASED",
-                "dueAt" to "2030-05-20T23:59:00+09:00",
+                "dueAt" to dueAt,
                 "problemIds" to problemIds.map(UUID::toString),
             ),
         )

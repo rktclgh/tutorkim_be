@@ -14,6 +14,7 @@ import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
+import java.time.Instant
 import java.util.UUID
 
 interface AssignmentRepository : JpaRepository<Assignment, UUID> {
@@ -56,6 +57,51 @@ interface AssignmentRepository : JpaRepository<Assignment, UUID> {
 		@Param("status") status: AssignmentStatus?,
 		pageable: Pageable,
 	): List<Assignment>
+
+	@Query(
+		"""
+		select assignment
+		from Assignment assignment, TeacherStudent relationship
+		join relationship.student student
+		where relationship.id = assignment.teacherStudentId
+		  and student.id = :studentId
+		  and relationship.active = true
+		  and student.deletedAt is null
+		  and assignment.status in :statuses
+		  and (
+		    :includeExpired = true
+		    or assignment.dueAt is null
+		    or assignment.dueAt >= :now
+		  )
+		order by assignment.createdAt desc
+		""",
+	)
+	fun searchForStudent(
+		@Param("studentId") studentId: UUID,
+		@Param("statuses") statuses: Collection<AssignmentStatus>,
+		@Param("includeExpired") includeExpired: Boolean,
+		@Param("now") now: Instant,
+		pageable: Pageable,
+	): List<Assignment>
+
+	@Query(
+		"""
+		select assignment
+		from Assignment assignment, TeacherStudent relationship
+		join relationship.student student
+		where assignment.id = :assignmentId
+		  and relationship.id = assignment.teacherStudentId
+		  and student.id = :studentId
+		  and relationship.active = true
+		  and student.deletedAt is null
+		  and assignment.status in :statuses
+		""",
+	)
+	fun findVisibleForStudent(
+		@Param("assignmentId") assignmentId: UUID,
+		@Param("studentId") studentId: UUID,
+		@Param("statuses") statuses: Collection<AssignmentStatus>,
+	): Assignment?
 }
 
 interface AssignmentProblemRepository : JpaRepository<AssignmentProblem, UUID> {
@@ -106,6 +152,23 @@ interface SubmissionAnswerRepository : JpaRepository<SubmissionAnswer, UUID> {
 		submissionId: UUID,
 		problemIds: Collection<UUID>,
 	): List<SubmissionAnswer>
+
+	@Query(
+		"""
+		select answer.submissionId as submissionId, count(answer.id) as answerCount
+		from SubmissionAnswer answer
+		where answer.submissionId in :submissionIds
+		group by answer.submissionId
+		""",
+	)
+	fun countBySubmissionIdIn(
+		@Param("submissionIds") submissionIds: Collection<UUID>,
+	): List<SubmissionAnswerCountView>
+}
+
+interface SubmissionAnswerCountView {
+	val submissionId: UUID
+	val answerCount: Long
 }
 
 interface SubmissionSolutionFileRepository : JpaRepository<SubmissionSolutionFile, UUID> {
