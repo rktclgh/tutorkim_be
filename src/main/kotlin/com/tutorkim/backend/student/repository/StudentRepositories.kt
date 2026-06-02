@@ -102,6 +102,40 @@ interface TeacherStudentRepository : JpaRepository<TeacherStudent, UUID> {
         @Param("ids") ids: Collection<UUID>,
         @Param("teacherId") teacherId: UUID,
     ): List<TeacherStudent>
+
+    @Query(
+        """
+        select distinct relationship
+        from TeacherStudent relationship
+        join fetch relationship.teacher teacher
+        join fetch relationship.student student
+        where relationship.id in :ids
+          and student.id = :studentId
+          and relationship.active = true
+          and student.deletedAt is null
+        """,
+    )
+    fun findByIdInAndStudentIdWithTeacher(
+        @Param("ids") ids: Collection<UUID>,
+        @Param("studentId") studentId: UUID,
+    ): List<TeacherStudent>
+
+    @Query(
+        """
+        select relationship
+        from TeacherStudent relationship
+        join fetch relationship.teacher teacher
+        join fetch relationship.student student
+        where relationship.id = :id
+          and student.id = :studentId
+          and relationship.active = true
+          and student.deletedAt is null
+        """,
+    )
+    fun findByIdAndStudentIdWithTeacher(
+        @Param("id") id: UUID,
+        @Param("studentId") studentId: UUID,
+    ): TeacherStudent?
 }
 
 interface TeacherInviteCodeRepository : JpaRepository<TeacherInviteCode, UUID> {
