@@ -174,6 +174,11 @@ class SecurityConfig(
 						"/api/v1/assignments/*/publish",
 					)
 					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.POST,
+						"/api/v1/assignments/*/release-results",
+					)
+					.hasRole("TEACHER")
 					.anyRequest()
 					.authenticated()
 			}

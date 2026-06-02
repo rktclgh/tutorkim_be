@@ -10,6 +10,7 @@ import com.tutorkim.backend.assignment.entity.AssignmentStatus
 import com.tutorkim.backend.assignment.entity.AssignmentSubmission
 import com.tutorkim.backend.assignment.entity.AssignmentTarget
 import com.tutorkim.backend.assignment.entity.AssignmentType
+import com.tutorkim.backend.assignment.entity.ResultVisibility
 import com.tutorkim.backend.assignment.entity.SubmissionStatus
 import com.tutorkim.backend.assignment.repository.AssignmentProblemRepository
 import com.tutorkim.backend.assignment.repository.AssignmentRepository
@@ -147,6 +148,33 @@ class AssignmentManagementService(
             relationship = findRelationship(target.teacherStudentId, teacherId),
             problemCount = problemCount,
             submissionStatus = SubmissionStatus.NOT_SUBMITTED,
+        )
+    }
+
+    @Transactional
+    fun releaseResults(
+        teacherUserId: UUID,
+        assignmentId: UUID,
+    ): AssignmentDetailResponse {
+        val teacherId = findTeacherId(teacherUserId)
+        val assignment = assignmentRepository.findOwnedByTeacherIdForUpdate(assignmentId, teacherId)
+            ?: throw ApiException(ErrorCode.NOT_FOUND, "과제를 찾을 수 없습니다.")
+        if (assignment.status !in setOf(AssignmentStatus.PUBLISHED, AssignmentStatus.CLOSED)) {
+            throw ApiException(ErrorCode.CONFLICT, "발행된 과제만 결과를 공개할 수 있습니다.")
+        }
+        if (assignment.resultVisibility == ResultVisibility.RELEASED ||
+            assignment.resultVisibility == ResultVisibility.IMMEDIATE
+        ) {
+            throw ApiException(ErrorCode.CONFLICT, "이미 공개된 과제 결과입니다.")
+        }
+
+        assignment.resultVisibility = ResultVisibility.RELEASED
+        assignment.updatedAt = Instant.now()
+        assignmentRepository.saveAndFlush(assignment)
+
+        return getDetail(
+            teacherUserId = teacherUserId,
+            assignmentId = assignmentId,
         )
     }
 
