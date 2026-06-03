@@ -107,6 +107,11 @@ interface AssignmentRepository : JpaRepository<Assignment, UUID> {
 interface AssignmentProblemRepository : JpaRepository<AssignmentProblem, UUID> {
 	fun findByAssignmentIdOrderBySortOrderAsc(assignmentId: UUID): List<AssignmentProblem>
 
+	fun findByIdAndAssignmentId(
+		id: UUID,
+		assignmentId: UUID,
+	): AssignmentProblem?
+
 	fun countByAssignmentId(assignmentId: UUID): Int
 
 	@Query(
@@ -139,6 +144,20 @@ interface AssignmentSubmissionRepository : JpaRepository<AssignmentSubmission, U
 		teacherStudentId: UUID,
 	): AssignmentSubmission?
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query(
+		"""
+		select submission
+		from AssignmentSubmission submission
+		where submission.assignmentId = :assignmentId
+		  and submission.teacherStudentId = :teacherStudentId
+		""",
+	)
+	fun findByAssignmentIdAndTeacherStudentIdForUpdate(
+		@Param("assignmentId") assignmentId: UUID,
+		@Param("teacherStudentId") teacherStudentId: UUID,
+	): AssignmentSubmission?
+
 	fun findByAssignmentIdIn(assignmentIds: Collection<UUID>): List<AssignmentSubmission>
 
 	fun existsByAssignmentIdAndTeacherStudentId(
@@ -148,6 +167,11 @@ interface AssignmentSubmissionRepository : JpaRepository<AssignmentSubmission, U
 }
 
 interface SubmissionAnswerRepository : JpaRepository<SubmissionAnswer, UUID> {
+	fun findBySubmissionIdAndProblemId(
+		submissionId: UUID,
+		problemId: UUID,
+	): SubmissionAnswer?
+
 	fun findBySubmissionIdAndProblemIdIn(
 		submissionId: UUID,
 		problemIds: Collection<UUID>,

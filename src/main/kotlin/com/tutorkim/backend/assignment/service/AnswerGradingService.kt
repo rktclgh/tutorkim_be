@@ -2,6 +2,7 @@ package com.tutorkim.backend.assignment.service
 
 import com.tutorkim.backend.assignment.entity.AnswerType
 import com.tutorkim.backend.assignment.entity.GradingDecision
+import org.springframework.stereotype.Service
 import java.math.BigDecimal
 
 data class AnswerKey(
@@ -21,6 +22,7 @@ data class GradingResult(
 	val decision: GradingDecision,
 )
 
+@Service
 class AnswerGradingService {
 
 	fun grade(answerKey: AnswerKey, studentAnswer: StudentAnswer): GradingResult {

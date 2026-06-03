@@ -51,7 +51,9 @@ import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequ
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
+import org.springframework.test.web.servlet.patch
 import org.springframework.test.web.servlet.post
+import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
 
@@ -534,6 +536,331 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
     }
 
     @Test
+    fun `student saves answers and submits assignment with auto grading`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val choiceProblem = createProblem(
+            teacherId = fixture.teacherProfile.id!!,
+            subjectId = fixture.math.id!!,
+            number = 1,
+            answerType = ProblemAnswerType.SINGLE_CHOICE,
+            correctChoiceNumbers = listOf(1),
+        )
+        val numericProblem = createProblem(
+            teacherId = fixture.teacherProfile.id!!,
+            subjectId = fixture.math.id!!,
+            number = 2,
+            answerType = ProblemAnswerType.NUMERIC,
+            correctNumericAnswer = BigDecimal("42"),
+        )
+        val assignmentId = createDraftThroughApi(fixture, listOf(choiceProblem.id!!, numericProblem.id!!))
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        val assignmentProblems = assignmentProblemRepository.findByAssignmentIdOrderBySortOrderAsc(assignmentId)
+        val choiceAssignmentProblemId = assignmentProblems[0].id!!
+        val numericAssignmentProblemId = assignmentProblems[1].id!!
+
+        mockMvc.patch("/api/v1/student/assignments/$assignmentId/answers/$choiceAssignmentProblemId") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "selectedChoiceNumbers" to listOf(1),
+                    "numericAnswer" to null,
+                    "unknown" to false,
+                ),
+            )
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.submissionStatus") { value("PARTIAL") }
+            jsonPath("$.data.canSolve") { value(true) }
+            jsonPath("$.data.problems[0].attemptStatus") { value("CORRECT_FIRST") }
+            jsonPath("$.data.problems[0].studentAnswer.selectedChoiceNumbers[0]") { value(1) }
+            jsonPath("$.data.problems[0].studentAnswer.unknown") { value(false) }
+        }
+
+        mockMvc.patch("/api/v1/student/assignments/$assignmentId/answers/$numericAssignmentProblemId") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "selectedChoiceNumbers" to emptyList<Int>(),
+                    "numericAnswer" to BigDecimal("41"),
+                    "unknown" to false,
+                ),
+            )
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.submissionStatus") { value("PARTIAL") }
+            jsonPath("$.data.problems[1].attemptStatus") { value("WRONG_FIRST") }
+            jsonPath("$.data.problems[1].studentAnswer.numericAnswer") { value(41) }
+        }
+
+        mockMvc.post("/api/v1/student/assignments/$assignmentId/submit") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.submissionStatus") { value("SUBMITTED") }
+            jsonPath("$.data.canSolve") { value(false) }
+            jsonPath("$.data.problems[0].attemptStatus") { value("CORRECT_FIRST") }
+            jsonPath("$.data.problems[1].attemptStatus") { value("WRONG_FIRST") }
+        }
+
+        val submission = assignmentSubmissionRepository.findAll().single { it.assignmentId == assignmentId }
+        assertThat(submission.status.name).isEqualTo("SUBMITTED")
+        assertThat(submission.gradingStatus.name).isEqualTo("AUTO_GRADED")
+        assertThat(submission.score).isEqualByComparingTo(BigDecimal("1.00"))
+        assertThat(submission.totalPoints).isEqualByComparingTo(BigDecimal("2.00"))
+        assertThat(submission.submittedAt).isNotNull()
+        val answers = submissionAnswerRepository.findAll()
+            .filter { it.submissionId == submission.id!! }
+            .associateBy { it.problemId }
+        assertThat(answers[choiceProblem.id!!]?.autoIsCorrect).isTrue()
+        assertThat(answers[choiceProblem.id!!]?.isCorrect).isTrue()
+        assertThat(answers[numericProblem.id!!]?.autoIsCorrect).isFalse()
+        assertThat(answers[numericProblem.id!!]?.isCorrect).isFalse()
+
+        mockMvc.patch("/api/v1/student/assignments/$assignmentId/answers/$choiceAssignmentProblemId") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "selectedChoiceNumbers" to listOf(1),
+                    "unknown" to false,
+                ),
+            )
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.error.code") { value("CONFLICT") }
+            jsonPath("$.error.message") { value("풀이 가능한 과제가 아닙니다.") }
+        }
+    }
+
+    @Test
+    fun `student batch submits answers by problem id`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val firstProblem = createProblem(
+            teacherId = fixture.teacherProfile.id!!,
+            subjectId = fixture.math.id!!,
+            number = 1,
+            answerType = ProblemAnswerType.SINGLE_CHOICE,
+            correctChoiceNumbers = listOf(1),
+        )
+        val secondProblem = createProblem(
+            teacherId = fixture.teacherProfile.id!!,
+            subjectId = fixture.math.id!!,
+            number = 2,
+            answerType = ProblemAnswerType.MULTIPLE_CHOICE,
+            correctChoiceNumbers = listOf(2, 5),
+        )
+        val assignmentId = createDraftThroughApi(fixture, listOf(firstProblem.id!!, secondProblem.id!!))
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        mockMvc.post("/api/v1/student/assignments/$assignmentId/submissions") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "answers" to listOf(
+                        mapOf(
+                            "problemId" to firstProblem.id!!.toString(),
+                            "selectedChoiceNumbers" to listOf(1),
+                        ),
+                        mapOf(
+                            "problemId" to secondProblem.id!!.toString(),
+                            "selectedChoiceNumbers" to listOf(2, 5),
+                        ),
+                    ),
+                ),
+            )
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.submissionStatus") { value("SUBMITTED") }
+            jsonPath("$.data.canSolve") { value(false) }
+            jsonPath("$.data.problems[0].attemptStatus") { value("CORRECT_FIRST") }
+            jsonPath("$.data.problems[1].attemptStatus") { value("CORRECT_FIRST") }
+        }
+
+        val submission = assignmentSubmissionRepository.findAll().single { it.assignmentId == assignmentId }
+        assertThat(submission.status.name).isEqualTo("SUBMITTED")
+        assertThat(submission.score).isEqualByComparingTo(BigDecimal("2.00"))
+        assertThat(submission.totalPoints).isEqualByComparingTo(BigDecimal("2.00"))
+    }
+
+    @Test
+    fun `student answer save validates unknown and batch duplicate problem ids`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val problems = createProblems(fixture.teacherProfile.id!!, fixture.math.id!!, 1)
+        val assignmentId = createDraftThroughApi(fixture, problems.map { it.id!! })
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        val assignmentProblemId = assignmentProblemRepository.findByAssignmentIdOrderBySortOrderAsc(assignmentId).single().id!!
+
+        mockMvc.patch("/api/v1/student/assignments/$assignmentId/answers/$assignmentProblemId") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "selectedChoiceNumbers" to emptyList<Int>(),
+                    "numericAnswer" to null,
+                    "unknown" to true,
+                ),
+            )
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.submissionStatus") { value("PARTIAL") }
+            jsonPath("$.data.problems[0].attemptStatus") { value("UNKNOWN") }
+            jsonPath("$.data.problems[0].studentAnswer.unknown") { value(true) }
+        }
+
+        mockMvc.patch("/api/v1/student/assignments/$assignmentId/answers/$assignmentProblemId") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "selectedChoiceNumbers" to listOf(1),
+                    "numericAnswer" to null,
+                    "unknown" to true,
+                ),
+            )
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("VALIDATION_ERROR") }
+            jsonPath("$.error.message") { value("모르겠어요 답안에는 선택지나 숫자 답안을 함께 보낼 수 없습니다.") }
+        }
+
+        mockMvc.post("/api/v1/student/assignments/$assignmentId/submissions") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "answers" to listOf(
+                        mapOf(
+                            "problemId" to problems[0].id!!.toString(),
+                            "selectedChoiceNumbers" to listOf(1),
+                        ),
+                        mapOf(
+                            "problemId" to problems[0].id!!.toString(),
+                            "selectedChoiceNumbers" to listOf(1),
+                        ),
+                    ),
+                ),
+            )
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("VALIDATION_ERROR") }
+            jsonPath("$.error.message") { value("답안 문제는 중복될 수 없습니다.") }
+        }
+    }
+
+    @Test
+    fun `student answer save and submit enforce solve availability and ownership`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val otherFixture = createFixture()
+        createRelationship(otherFixture)
+        val problems = createProblems(fixture.teacherProfile.id!!, fixture.math.id!!, 2)
+        val assignmentId = createDraftThroughApi(fixture, problems.map { it.id!! })
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        val assignmentProblems = assignmentProblemRepository.findByAssignmentIdOrderBySortOrderAsc(assignmentId)
+        val firstAssignmentProblemId = assignmentProblems[0].id!!
+
+        mockMvc.post("/api/v1/student/assignments/$assignmentId/submit") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("VALIDATION_ERROR") }
+            jsonPath("$.error.message") { value("모든 문제를 풀거나 모르겠어요로 표시해야 제출할 수 있습니다.") }
+        }
+
+        mockMvc.patch("/api/v1/student/assignments/$assignmentId/answers/$firstAssignmentProblemId") {
+            with(user(otherFixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "selectedChoiceNumbers" to listOf(1),
+                    "unknown" to false,
+                ),
+            )
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+        }
+
+        mockMvc.patch("/api/v1/student/assignments/$assignmentId/answers/$firstAssignmentProblemId") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "selectedChoiceNumbers" to listOf(1),
+                    "unknown" to false,
+                ),
+            )
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.code") { value("FORBIDDEN") }
+        }
+
+        val expiredAssignment = assignmentRepository.findById(assignmentId).orElseThrow()
+        expiredAssignment.dueAt = Instant.parse("2020-05-20T14:59:00Z")
+        assignmentRepository.saveAndFlush(expiredAssignment)
+
+        mockMvc.patch("/api/v1/student/assignments/$assignmentId/answers/$firstAssignmentProblemId") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "selectedChoiceNumbers" to listOf(1),
+                    "unknown" to false,
+                ),
+            )
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.error.code") { value("CONFLICT") }
+            jsonPath("$.error.message") { value("풀이 가능한 과제가 아닙니다.") }
+        }
+    }
+
+    @Test
     fun `release results rejects draft and already released assignment`() {
         val fixture = createFixture()
         createRelationship(fixture)
@@ -869,33 +1196,50 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
         teacherId: UUID,
         subjectId: UUID,
         count: Int,
-    ): List<Problem> {
-        val labels = createLabelFixture(subjectId)
-        return (1..count).map { number ->
-            val problem = problemRepository.saveAndFlush(
-                Problem(
-                    ownerTeacherId = teacherId,
-                    subjectId = subjectId,
-                    answerType = ProblemAnswerType.SINGLE_CHOICE,
-                    correctChoiceNumbers = listOf(1.toShort()),
-                    difficulty = 3,
-                    labelDepth1Id = labels.depth1Id,
-                    labelDepth2Id = labels.depth2Id,
-                    labelDepth3Id = labels.depth3Id,
-                    parseStatus = ParseStatus.REVIEWED,
-                    reviewedAt = Instant.now(),
-                ),
+    ): List<Problem> =
+        (1..count).map { number ->
+            createProblem(
+                teacherId = teacherId,
+                subjectId = subjectId,
+                number = number,
+                answerType = ProblemAnswerType.SINGLE_CHOICE,
+                correctChoiceNumbers = listOf(1),
             )
-            problemBlockRepository.save(
-                ProblemBlock(
-                    problemId = problem.id!!,
-                    blockType = ProblemBlockType.TEXT,
-                    sortOrder = 1,
-                    textContent = "문제 $number",
-                ),
-            )
-            problem
         }
+
+    private fun createProblem(
+        teacherId: UUID,
+        subjectId: UUID,
+        number: Int,
+        answerType: ProblemAnswerType,
+        correctChoiceNumbers: List<Int> = emptyList(),
+        correctNumericAnswer: BigDecimal? = null,
+    ): Problem {
+        val labels = createLabelFixture(subjectId)
+        val problem = problemRepository.saveAndFlush(
+            Problem(
+                ownerTeacherId = teacherId,
+                subjectId = subjectId,
+                answerType = answerType,
+                correctChoiceNumbers = correctChoiceNumbers.map { it.toShort() }.ifEmpty { null },
+                correctNumericAnswer = correctNumericAnswer,
+                difficulty = 3,
+                labelDepth1Id = labels.depth1Id,
+                labelDepth2Id = labels.depth2Id,
+                labelDepth3Id = labels.depth3Id,
+                parseStatus = ParseStatus.REVIEWED,
+                reviewedAt = Instant.now(),
+            ),
+        )
+        problemBlockRepository.save(
+            ProblemBlock(
+                problemId = problem.id!!,
+                blockType = ProblemBlockType.TEXT,
+                sortOrder = 1,
+                textContent = "문제 $number",
+            ),
+        )
+        return problem
     }
 
     private fun createFileAsset(

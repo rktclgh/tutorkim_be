@@ -7,6 +7,13 @@ import com.tutorkim.backend.assignment.entity.ResultVisibility
 import com.tutorkim.backend.assignment.entity.SubmissionStatus
 import com.tutorkim.backend.student.entity.TeacherProfile
 import com.tutorkim.backend.subject.entity.Subject
+import jakarta.validation.Valid
+import jakarta.validation.constraints.Max
+import jakarta.validation.constraints.Min
+import jakarta.validation.constraints.NotEmpty
+import jakarta.validation.constraints.NotNull
+import jakarta.validation.constraints.Size
+import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
 
@@ -121,4 +128,41 @@ data class StudentAssignmentDetailResponse(
                 problems = problems,
             )
     }
+}
+
+data class SaveStudentAnswerRequest(
+    @field:Size(max = 5)
+    @field:Valid
+    val selectedChoiceNumbers: List<@Min(1) @Max(5) Int> = emptyList(),
+
+    val numericAnswer: BigDecimal? = null,
+
+    val unknown: Boolean = false,
+)
+
+data class SubmitStudentAnswersRequest(
+    @field:NotEmpty
+    @field:Size(max = 100)
+    @field:Valid
+    val answers: List<StudentBatchAnswerRequest>,
+)
+
+data class StudentBatchAnswerRequest(
+    @field:NotNull
+    val problemId: UUID,
+
+    @field:Size(max = 5)
+    @field:Valid
+    val selectedChoiceNumbers: List<@Min(1) @Max(5) Int> = emptyList(),
+
+    val numericAnswer: BigDecimal? = null,
+
+    val unknown: Boolean = false,
+) {
+    fun toSaveRequest(): SaveStudentAnswerRequest =
+        SaveStudentAnswerRequest(
+            selectedChoiceNumbers = selectedChoiceNumbers,
+            numericAnswer = numericAnswer,
+            unknown = unknown,
+        )
 }
