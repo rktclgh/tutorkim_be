@@ -60,6 +60,21 @@ class SecurityConfig(
 					)
 					.hasRole("STUDENT")
 					.requestMatchers(
+						HttpMethod.PATCH,
+						"/api/v1/student/assignments/*/answers/*",
+					)
+					.hasRole("STUDENT")
+					.requestMatchers(
+						HttpMethod.POST,
+						"/api/v1/student/assignments/*/submit",
+					)
+					.hasRole("STUDENT")
+					.requestMatchers(
+						HttpMethod.POST,
+						"/api/v1/student/assignments/*/submissions",
+					)
+					.hasRole("STUDENT")
+					.requestMatchers(
 						HttpMethod.DELETE,
 						"/api/v1/students/*/teacher-relationship",
 					)

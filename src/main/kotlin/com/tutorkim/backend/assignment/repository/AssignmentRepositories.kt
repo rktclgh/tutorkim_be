@@ -139,6 +139,20 @@ interface AssignmentSubmissionRepository : JpaRepository<AssignmentSubmission, U
 		teacherStudentId: UUID,
 	): AssignmentSubmission?
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query(
+		"""
+		select submission
+		from AssignmentSubmission submission
+		where submission.assignmentId = :assignmentId
+		  and submission.teacherStudentId = :teacherStudentId
+		""",
+	)
+	fun findByAssignmentIdAndTeacherStudentIdForUpdate(
+		@Param("assignmentId") assignmentId: UUID,
+		@Param("teacherStudentId") teacherStudentId: UUID,
+	): AssignmentSubmission?
+
 	fun findByAssignmentIdIn(assignmentIds: Collection<UUID>): List<AssignmentSubmission>
 
 	fun existsByAssignmentIdAndTeacherStudentId(
@@ -148,6 +162,11 @@ interface AssignmentSubmissionRepository : JpaRepository<AssignmentSubmission, U
 }
 
 interface SubmissionAnswerRepository : JpaRepository<SubmissionAnswer, UUID> {
+	fun findBySubmissionIdAndProblemId(
+		submissionId: UUID,
+		problemId: UUID,
+	): SubmissionAnswer?
+
 	fun findBySubmissionIdAndProblemIdIn(
 		submissionId: UUID,
 		problemIds: Collection<UUID>,
