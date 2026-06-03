@@ -239,7 +239,12 @@ class SubmissionAnswer(
 )
 
 @Entity
-@Table(name = "submission_solution_files")
+@Table(
+	name = "submission_solution_files",
+	uniqueConstraints = [
+		UniqueConstraint(name = "submission_solution_file_asset_unique", columnNames = ["file_asset_id"]),
+	],
+)
 class SubmissionSolutionFile(
 	@Id
 	@GeneratedValue(strategy = GenerationType.UUID)

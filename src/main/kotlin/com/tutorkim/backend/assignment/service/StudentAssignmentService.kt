@@ -12,6 +12,7 @@ import com.tutorkim.backend.assignment.entity.AssignmentSubmission
 import com.tutorkim.backend.assignment.entity.GradingDecision
 import com.tutorkim.backend.assignment.entity.GradingStatus
 import com.tutorkim.backend.assignment.entity.ProblemAttemptStatus
+import com.tutorkim.backend.assignment.entity.ResultVisibility
 import com.tutorkim.backend.assignment.entity.SubmissionAnswer
 import com.tutorkim.backend.assignment.entity.SubmissionSolutionFile
 import com.tutorkim.backend.assignment.entity.SubmissionStatus
@@ -37,6 +38,7 @@ import com.tutorkim.backend.subject.entity.Subject
 import com.tutorkim.backend.subject.repository.SubjectRepository
 import java.math.BigDecimal
 import org.springframework.data.domain.PageRequest
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -210,13 +212,20 @@ class StudentAssignmentService(
             id = request.fileAssetId,
             ownerUserId = studentUserId,
         ) ?: throw ApiException(ErrorCode.NOT_FOUND, "파일을 찾을 수 없습니다.")
+        if (submissionSolutionFileRepository.existsByFileAssetId(request.fileAssetId)) {
+            throw ApiException(ErrorCode.CONFLICT, "이미 첨부된 풀이 파일입니다.")
+        }
 
-        submissionSolutionFileRepository.saveAndFlush(
-            SubmissionSolutionFile(
-                submissionAnswerId = answer.id!!,
-                fileAssetId = request.fileAssetId,
-            ),
-        )
+        try {
+            submissionSolutionFileRepository.saveAndFlush(
+                SubmissionSolutionFile(
+                    submissionAnswerId = answer.id!!,
+                    fileAssetId = request.fileAssetId,
+                ),
+            )
+        } catch (_: DataIntegrityViolationException) {
+            throw ApiException(ErrorCode.CONFLICT, "이미 첨부된 풀이 파일입니다.")
+        }
 
         return getMyAssignmentDetail(studentUserId, assignmentId)
     }
@@ -289,7 +298,7 @@ class StudentAssignmentService(
         } else {
             problemBlockRepository.findByProblemIdIn(problemIds).groupBy { it.problemId }
         }
-        val teacherSolutionFilesByProblemId = if (problemIds.isEmpty()) {
+        val teacherSolutionFilesByProblemId = if (problemIds.isEmpty() || !canShowTeacherSolutionFiles(assignment, submission)) {
             emptyMap()
         } else {
             problemExplanationRepository.findActiveByProblemIdIn(problemIds)
@@ -329,6 +338,16 @@ class StudentAssignmentService(
             )
         }
     }
+
+    private fun canShowTeacherSolutionFiles(
+        assignment: Assignment,
+        submission: AssignmentSubmission?,
+    ): Boolean =
+        assignment.resultVisibility == ResultVisibility.RELEASED ||
+            (
+                assignment.resultVisibility == ResultVisibility.IMMEDIATE &&
+                    submission?.status in SUBMITTED_STATUSES
+            )
 
     private fun findSolvableContext(
         studentUserId: UUID,
@@ -537,6 +556,10 @@ class StudentAssignmentService(
         val RETRY_ELIGIBLE_ATTEMPT_STATUSES = setOf(
             ProblemAttemptStatus.WRONG_FIRST,
             ProblemAttemptStatus.CORRECT_RETRY,
+        )
+        val SUBMITTED_STATUSES = setOf(
+            SubmissionStatus.SUBMITTED,
+            SubmissionStatus.LATE_SUBMITTED,
         )
         const val STUDENT_ASSIGNMENT_LIMIT = 100
     }
