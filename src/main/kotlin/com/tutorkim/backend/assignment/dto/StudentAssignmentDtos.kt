@@ -132,6 +132,7 @@ data class StudentAssignmentDetailResponse(
 
 data class SaveStudentAnswerRequest(
     @field:Size(max = 5)
+    @field:Valid
     val selectedChoiceNumbers: List<@Min(1) @Max(5) Int> = emptyList(),
 
     val numericAnswer: BigDecimal? = null,
@@ -151,6 +152,7 @@ data class StudentBatchAnswerRequest(
     val problemId: UUID,
 
     @field:Size(max = 5)
+    @field:Valid
     val selectedChoiceNumbers: List<@Min(1) @Max(5) Int> = emptyList(),
 
     val numericAnswer: BigDecimal? = null,

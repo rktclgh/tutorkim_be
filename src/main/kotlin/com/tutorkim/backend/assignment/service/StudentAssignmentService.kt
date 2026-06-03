@@ -165,8 +165,10 @@ class StudentAssignmentService(
         request: SaveStudentAnswerRequest,
     ): StudentAssignmentDetailResponse {
         val context = findSolvableContext(studentUserId, assignmentId)
-        val assignmentProblems = assignmentProblemRepository.findByAssignmentIdOrderBySortOrderAsc(context.assignment.id!!)
-        val assignmentProblem = assignmentProblems.singleOrNull { it.id == assignmentProblemId }
+        val assignmentProblem = assignmentProblemRepository.findByIdAndAssignmentId(
+            id = assignmentProblemId,
+            assignmentId = context.assignment.id!!,
+        )
             ?: throw ApiException(ErrorCode.NOT_FOUND, "과제 문제를 찾을 수 없습니다.")
         val problem = problemRepository.findById(assignmentProblem.problemId)
             .orElseThrow { ApiException(ErrorCode.NOT_FOUND, "과제 문제를 찾을 수 없습니다.") }
@@ -210,17 +212,25 @@ class StudentAssignmentService(
             throw ApiException(ErrorCode.NOT_FOUND, "과제 문제를 찾을 수 없습니다.")
         }
         val problemsById = problemRepository.findAllById(requestedProblemIds).associateBy { it.id!! }
+        val existingAnswersByProblemId = submissionAnswerRepository.findBySubmissionIdAndProblemIdIn(
+            submissionId = context.submission.id!!,
+            problemIds = requestedProblemIds,
+        ).associateBy { it.problemId }
+        val now = Instant.now()
 
-        request.answers.forEach { answer ->
+        val answersToSave = request.answers.map { answer ->
             val problem = problemsById[answer.problemId]
                 ?: throw ApiException(ErrorCode.NOT_FOUND, "과제 문제를 찾을 수 없습니다.")
-            upsertAnswer(
+            prepareAnswer(
                 submission = context.submission,
                 problem = problem,
                 request = answer.toSaveRequest(),
-                now = Instant.now(),
+                existingAnswer = existingAnswersByProblemId[answer.problemId],
+                now = now,
             )
         }
+        submissionAnswerRepository.saveAll(answersToSave)
+        submissionAnswerRepository.flush()
         submitExistingAnswers(context)
 
         return getMyAssignmentDetail(studentUserId, assignmentId)
@@ -318,11 +328,29 @@ class StudentAssignmentService(
         request: SaveStudentAnswerRequest,
         now: Instant,
     ): SubmissionAnswer {
-        validateAnswer(problem.answerType, request)
         val existingAnswer = submissionAnswerRepository.findBySubmissionIdAndProblemId(
             submissionId = submission.id!!,
             problemId = problem.id!!,
         )
+        return submissionAnswerRepository.saveAndFlush(
+            prepareAnswer(
+                submission = submission,
+                problem = problem,
+                request = request,
+                existingAnswer = existingAnswer,
+                now = now,
+            ),
+        )
+    }
+
+    private fun prepareAnswer(
+        submission: AssignmentSubmission,
+        problem: Problem,
+        request: SaveStudentAnswerRequest,
+        existingAnswer: SubmissionAnswer?,
+        now: Instant,
+    ): SubmissionAnswer {
+        validateAnswer(problem.answerType, request)
         val gradingResult = answerGradingService.grade(
             AnswerKey(
                 answerType = problem.answerType.toAssignmentAnswerType(),
@@ -342,7 +370,7 @@ class StudentAssignmentService(
         )
         val retryCount = if (existingAnswer == null) {
             0
-        } else if (existingAnswer.attemptStatus in setOf(ProblemAttemptStatus.WRONG_FIRST, ProblemAttemptStatus.CORRECT_RETRY)) {
+        } else if (existingAnswer.attemptStatus in RETRY_ELIGIBLE_ATTEMPT_STATUSES) {
             existingAnswer.retryCount + 1
         } else {
             existingAnswer.retryCount
@@ -357,7 +385,7 @@ class StudentAssignmentService(
         answer.isCorrect = gradingResult.isCorrect
         answer.autoGradedAt = if (gradingResult.decision == GradingDecision.AUTO_GRADED) now else null
         answer.updatedAt = now
-        return submissionAnswerRepository.saveAndFlush(answer)
+        return answer
     }
 
     private fun validateAnswer(
@@ -469,6 +497,10 @@ class StudentAssignmentService(
 
     private companion object {
         val STUDENT_VISIBLE_STATUSES = setOf(AssignmentStatus.PUBLISHED, AssignmentStatus.CLOSED)
+        val RETRY_ELIGIBLE_ATTEMPT_STATUSES = setOf(
+            ProblemAttemptStatus.WRONG_FIRST,
+            ProblemAttemptStatus.CORRECT_RETRY,
+        )
         const val STUDENT_ASSIGNMENT_LIMIT = 100
     }
 

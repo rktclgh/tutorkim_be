@@ -107,6 +107,11 @@ interface AssignmentRepository : JpaRepository<Assignment, UUID> {
 interface AssignmentProblemRepository : JpaRepository<AssignmentProblem, UUID> {
 	fun findByAssignmentIdOrderBySortOrderAsc(assignmentId: UUID): List<AssignmentProblem>
 
+	fun findByIdAndAssignmentId(
+		id: UUID,
+		assignmentId: UUID,
+	): AssignmentProblem?
+
 	fun countByAssignmentId(assignmentId: UUID): Int
 
 	@Query(
