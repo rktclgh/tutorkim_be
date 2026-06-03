@@ -102,6 +102,11 @@ begin
 			on problem_upload_files (batch_id, file_asset_id)';
 	end if;
 
+	if to_regclass('public.submission_solution_files') is not null then
+		execute 'create unique index if not exists submission_solution_file_asset_unique
+			on submission_solution_files (file_asset_id)';
+	end if;
+
 	if to_regclass('public.problem_explanations') is not null then
 		execute 'alter table problem_explanations
 			add column if not exists archived_at timestamptz';

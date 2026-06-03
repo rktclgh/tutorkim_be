@@ -197,4 +197,6 @@ interface SubmissionAnswerCountView {
 
 interface SubmissionSolutionFileRepository : JpaRepository<SubmissionSolutionFile, UUID> {
 	fun findBySubmissionAnswerIdIn(submissionAnswerIds: Collection<UUID>): List<SubmissionSolutionFile>
+
+	fun existsByFileAssetId(fileAssetId: UUID): Boolean
 }

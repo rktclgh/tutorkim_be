@@ -512,12 +512,24 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
             jsonPath("$.data.problems[0].attemptStatus") { value("CORRECT_FIRST") }
             jsonPath("$.data.problems[0].studentAnswer.selectedChoiceNumbers[0]") { value(1) }
             jsonPath("$.data.problems[0].studentSolutionFiles[0].fileAssetId") { value(studentSolutionFile.id!!.toString()) }
+            jsonPath("$.data.problems[0].teacherSolutionFiles.length()") { value(0) }
+            jsonPath("$.data.problems[1].problemId") { value(problems[1].id!!.toString()) }
+            jsonPath("$.data.problems[1].attemptStatus") { value("PENDING") }
+        }
+
+        val assignment = assignmentRepository.findById(assignmentId).orElseThrow()
+        assignment.resultVisibility = ResultVisibility.RELEASED
+        assignmentRepository.saveAndFlush(assignment)
+
+        mockMvc.get("/api/v1/student/assignments/$assignmentId") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.resultVisibility") { value("RELEASED") }
             jsonPath("$.data.problems[0].teacherSolutionFiles.length()") { value(1) }
             jsonPath("$.data.problems[0].teacherSolutionFiles[0].explanationId") { value(visibleExplanation.id!!.toString()) }
             jsonPath("$.data.problems[0].teacherSolutionFiles[0].fileAssetId") { value(visibleTeacherSolutionFile.id!!.toString()) }
             jsonPath("$.data.problems[0].teacherSolutionFiles[0].visibleToStudent") { value(true) }
-            jsonPath("$.data.problems[1].problemId") { value(problems[1].id!!.toString()) }
-            jsonPath("$.data.problems[1].attemptStatus") { value("PENDING") }
         }
 
         mockMvc.get("/api/v1/student/assignments/$assignmentId") {
@@ -532,6 +544,70 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
         }.andExpect {
             status { isForbidden() }
             jsonPath("$.error.code") { value("FORBIDDEN") }
+        }
+    }
+
+    @Test
+    fun `student sees immediate teacher solution files only after submission`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val problems = createProblems(fixture.teacherProfile.id!!, fixture.math.id!!, 1)
+        val assignmentId = createDraftThroughApi(fixture, problems.map { it.id!! })
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        val assignment = assignmentRepository.findById(assignmentId).orElseThrow()
+        assignment.resultVisibility = ResultVisibility.IMMEDIATE
+        assignmentRepository.saveAndFlush(assignment)
+        val teacherSolutionFile = createFileAsset(fixture.teacherUser.id!!, "immediate-teacher-solution")
+        problemExplanationRepository.save(
+            ProblemExplanation(
+                problemId = problems[0].id!!,
+                sortOrder = 1,
+                sourceType = ProblemExplanationSourceType.TEACHER_SOLUTION_IMAGE,
+                fileAssetId = teacherSolutionFile.id!!,
+                visibleToStudent = true,
+                createdBy = fixture.teacherUser.id!!,
+            ),
+        )
+
+        mockMvc.get("/api/v1/student/assignments/$assignmentId") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.submissionStatus") { value("NOT_SUBMITTED") }
+            jsonPath("$.data.resultVisibility") { value("IMMEDIATE") }
+            jsonPath("$.data.problems[0].teacherSolutionFiles.length()") { value(0) }
+        }
+
+        val assignmentProblemId = assignmentProblemRepository.findByAssignmentIdOrderBySortOrderAsc(assignmentId).single().id!!
+        mockMvc.patch("/api/v1/student/assignments/$assignmentId/answers/$assignmentProblemId") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "selectedChoiceNumbers" to listOf(1),
+                    "unknown" to false,
+                ),
+            )
+        }.andExpect {
+            status { isOk() }
+        }
+
+        mockMvc.post("/api/v1/student/assignments/$assignmentId/submit") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.submissionStatus") { value("SUBMITTED") }
+            jsonPath("$.data.resultVisibility") { value("IMMEDIATE") }
+            jsonPath("$.data.problems[0].teacherSolutionFiles[0].fileAssetId") { value(teacherSolutionFile.id!!.toString()) }
         }
     }
 
@@ -846,6 +922,17 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
             status { isOk() }
             jsonPath("$.data.submissionStatus") { value("PARTIAL") }
             jsonPath("$.data.problems[0].studentSolutionFiles[0].fileAssetId") { value(studentSolutionFileId.toString()) }
+        }
+
+        mockMvc.post("/api/v1/student/assignments/$assignmentId/answers/$assignmentProblemId/solution-files") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(mapOf("fileAssetId" to studentSolutionFileId.toString()))
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.error.code") { value("CONFLICT") }
+            jsonPath("$.error.message") { value("이미 첨부된 풀이 파일입니다.") }
         }
 
         val savedAnswer = submissionAnswerRepository.findAll().single { it.problemId == problems[0].id!! }
