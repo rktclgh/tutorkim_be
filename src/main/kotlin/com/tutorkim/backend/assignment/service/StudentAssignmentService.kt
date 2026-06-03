@@ -1,6 +1,7 @@
 package com.tutorkim.backend.assignment.service
 
 import com.tutorkim.backend.assignment.dto.AssignmentProblemDetailResponse
+import com.tutorkim.backend.assignment.dto.AttachStudentSolutionFileRequest
 import com.tutorkim.backend.assignment.dto.SaveStudentAnswerRequest
 import com.tutorkim.backend.assignment.dto.StudentAssignmentDetailResponse
 import com.tutorkim.backend.assignment.dto.StudentAssignmentSummaryResponse
@@ -12,6 +13,7 @@ import com.tutorkim.backend.assignment.entity.GradingDecision
 import com.tutorkim.backend.assignment.entity.GradingStatus
 import com.tutorkim.backend.assignment.entity.ProblemAttemptStatus
 import com.tutorkim.backend.assignment.entity.SubmissionAnswer
+import com.tutorkim.backend.assignment.entity.SubmissionSolutionFile
 import com.tutorkim.backend.assignment.entity.SubmissionStatus
 import com.tutorkim.backend.assignment.repository.AssignmentProblemRepository
 import com.tutorkim.backend.assignment.repository.AssignmentRepository
@@ -20,6 +22,7 @@ import com.tutorkim.backend.assignment.repository.SubmissionAnswerRepository
 import com.tutorkim.backend.assignment.repository.SubmissionSolutionFileRepository
 import com.tutorkim.backend.common.exception.ApiException
 import com.tutorkim.backend.common.exception.ErrorCode
+import com.tutorkim.backend.file.repository.FileAssetRepository
 import com.tutorkim.backend.problem.entity.Problem
 import com.tutorkim.backend.problem.entity.ProblemAnswerType
 import com.tutorkim.backend.problem.dto.ProblemBlockResponse
@@ -49,6 +52,7 @@ class StudentAssignmentService(
     private val assignmentSubmissionRepository: AssignmentSubmissionRepository,
     private val submissionAnswerRepository: SubmissionAnswerRepository,
     private val submissionSolutionFileRepository: SubmissionSolutionFileRepository,
+    private val fileAssetRepository: FileAssetRepository,
     private val problemRepository: ProblemRepository,
     private val problemBlockRepository: ProblemBlockRepository,
     private val problemExplanationRepository: ProblemExplanationRepository,
@@ -180,6 +184,39 @@ class StudentAssignmentService(
             now = Instant.now(),
         )
         markPartial(context.submission)
+
+        return getMyAssignmentDetail(studentUserId, assignmentId)
+    }
+
+    @Transactional
+    fun attachMySolutionFile(
+        studentUserId: UUID,
+        assignmentId: UUID,
+        assignmentProblemId: UUID,
+        request: AttachStudentSolutionFileRequest,
+    ): StudentAssignmentDetailResponse {
+        val context = findSolvableContext(studentUserId, assignmentId)
+        val assignmentProblem = assignmentProblemRepository.findByIdAndAssignmentId(
+            id = assignmentProblemId,
+            assignmentId = context.assignment.id!!,
+        )
+            ?: throw ApiException(ErrorCode.NOT_FOUND, "과제 문제를 찾을 수 없습니다.")
+        val answer = submissionAnswerRepository.findBySubmissionIdAndProblemId(
+            submissionId = context.submission.id!!,
+            problemId = assignmentProblem.problemId,
+        ) ?: throw ApiException(ErrorCode.VALIDATION_ERROR, "답안을 먼저 저장해야 풀이 파일을 첨부할 수 있습니다.")
+
+        fileAssetRepository.findByIdAndOwnerUserId(
+            id = request.fileAssetId,
+            ownerUserId = studentUserId,
+        ) ?: throw ApiException(ErrorCode.NOT_FOUND, "파일을 찾을 수 없습니다.")
+
+        submissionSolutionFileRepository.saveAndFlush(
+            SubmissionSolutionFile(
+                submissionAnswerId = answer.id!!,
+                fileAssetId = request.fileAssetId,
+            ),
+        )
 
         return getMyAssignmentDetail(studentUserId, assignmentId)
     }

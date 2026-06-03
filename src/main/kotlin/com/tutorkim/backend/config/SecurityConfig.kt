@@ -66,6 +66,11 @@ class SecurityConfig(
 					.hasRole("STUDENT")
 					.requestMatchers(
 						HttpMethod.POST,
+						"/api/v1/student/assignments/*/answers/*/solution-files",
+					)
+					.hasRole("STUDENT")
+					.requestMatchers(
+						HttpMethod.POST,
 						"/api/v1/student/assignments/*/submit",
 					)
 					.hasRole("STUDENT")
@@ -118,7 +123,7 @@ class SecurityConfig(
 						HttpMethod.POST,
 						"/api/v1/files/upload-url",
 					)
-					.hasRole("TEACHER")
+					.hasAnyRole("TEACHER", "STUDENT")
 					.requestMatchers(
 						HttpMethod.POST,
 						"/api/v1/problem-upload-batches",
