@@ -140,6 +140,11 @@ data class SaveStudentAnswerRequest(
     val unknown: Boolean = false,
 )
 
+data class AttachStudentSolutionFileRequest(
+    @field:NotNull
+    val fileAssetId: UUID,
+)
+
 data class SubmitStudentAnswersRequest(
     @field:NotEmpty
     @field:Size(max = 100)

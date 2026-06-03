@@ -782,6 +782,98 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
     }
 
     @Test
+    fun `student attaches solution file to saved answer`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val otherFixture = createFixture()
+        createRelationship(otherFixture)
+        val problems = createProblems(fixture.teacherProfile.id!!, fixture.math.id!!, 1)
+        val assignmentId = createDraftThroughApi(fixture, problems.map { it.id!! })
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        val assignmentProblemId = assignmentProblemRepository.findByAssignmentIdOrderBySortOrderAsc(assignmentId).single().id!!
+        val studentSolutionFileId = requestFileUpload(fixture.studentUser.id!!, "student-solution-upload.png")
+        val otherStudentFileId = requestFileUpload(otherFixture.studentUser.id!!, "other-student-solution-upload.png")
+
+        mockMvc.post("/api/v1/student/assignments/$assignmentId/answers/$assignmentProblemId/solution-files") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(mapOf("fileAssetId" to studentSolutionFileId.toString()))
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("VALIDATION_ERROR") }
+            jsonPath("$.error.message") { value("답안을 먼저 저장해야 풀이 파일을 첨부할 수 있습니다.") }
+        }
+
+        mockMvc.patch("/api/v1/student/assignments/$assignmentId/answers/$assignmentProblemId") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "selectedChoiceNumbers" to listOf(1),
+                    "unknown" to false,
+                ),
+            )
+        }.andExpect {
+            status { isOk() }
+        }
+
+        mockMvc.post("/api/v1/student/assignments/$assignmentId/answers/$assignmentProblemId/solution-files") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(mapOf("fileAssetId" to otherStudentFileId.toString()))
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+            jsonPath("$.error.message") { value("파일을 찾을 수 없습니다.") }
+        }
+
+        mockMvc.post("/api/v1/student/assignments/$assignmentId/answers/$assignmentProblemId/solution-files") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(mapOf("fileAssetId" to studentSolutionFileId.toString()))
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.submissionStatus") { value("PARTIAL") }
+            jsonPath("$.data.problems[0].studentSolutionFiles[0].fileAssetId") { value(studentSolutionFileId.toString()) }
+        }
+
+        val savedAnswer = submissionAnswerRepository.findAll().single { it.problemId == problems[0].id!! }
+        val solutionFiles = submissionSolutionFileRepository.findAll()
+            .filter { it.submissionAnswerId == savedAnswer.id!! }
+        assertThat(solutionFiles).hasSize(1)
+        assertThat(solutionFiles.single().fileAssetId).isEqualTo(studentSolutionFileId)
+
+        mockMvc.post("/api/v1/student/assignments/$assignmentId/submit") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        mockMvc.post("/api/v1/student/assignments/$assignmentId/answers/$assignmentProblemId/solution-files") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(mapOf("fileAssetId" to studentSolutionFileId.toString()))
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.error.code") { value("CONFLICT") }
+            jsonPath("$.error.message") { value("풀이 가능한 과제가 아닙니다.") }
+        }
+    }
+
+    @Test
     fun `student answer save and submit enforce solve availability and ownership`() {
         val fixture = createFixture()
         createRelationship(fixture)
@@ -1255,6 +1347,28 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
                 sizeBytes = 128,
             ),
         )
+
+    private fun requestFileUpload(
+        ownerUserId: UUID,
+        filename: String,
+    ): UUID {
+        val response = mockMvc.post("/api/v1/files/upload-url") {
+            with(user(ownerUserId.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "filename" to filename,
+                    "contentType" to "image/png",
+                    "sizeBytes" to 128,
+                ),
+            )
+        }.andExpect {
+            status { isOk() }
+        }.andReturn().response.contentAsString
+
+        return UUID.fromString(objectMapper.readTree(response)["data"]["fileAssetId"].asText())
+    }
 
     private fun createLabelFixture(subjectId: UUID): LabelFixture {
         val depth1 = curriculumNodeRepository.save(CurriculumNode(subjectId = subjectId, depth = 1, name = "대단원-${UUID.randomUUID()}", system = true))

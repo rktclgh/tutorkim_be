@@ -1,5 +1,6 @@
 package com.tutorkim.backend.assignment.controller
 
+import com.tutorkim.backend.assignment.dto.AttachStudentSolutionFileRequest
 import com.tutorkim.backend.assignment.dto.StudentAssignmentDetailResponse
 import com.tutorkim.backend.assignment.dto.StudentAssignmentSummaryResponse
 import com.tutorkim.backend.assignment.dto.SaveStudentAnswerRequest
@@ -53,6 +54,20 @@ class StudentAssignmentController(
         @Valid @RequestBody request: SaveStudentAnswerRequest,
     ): StudentAssignmentDetailResponse =
         studentAssignmentService.saveMyAnswer(
+            studentUserId = currentUserId(authentication),
+            assignmentId = assignmentId,
+            assignmentProblemId = assignmentProblemId,
+            request = request,
+        )
+
+    @PostMapping("/student/assignments/{assignmentId}/answers/{assignmentProblemId}/solution-files")
+    fun attachMySolutionFile(
+        authentication: Authentication,
+        @PathVariable assignmentId: UUID,
+        @PathVariable assignmentProblemId: UUID,
+        @Valid @RequestBody request: AttachStudentSolutionFileRequest,
+    ): StudentAssignmentDetailResponse =
+        studentAssignmentService.attachMySolutionFile(
             studentUserId = currentUserId(authentication),
             assignmentId = assignmentId,
             assignmentProblemId = assignmentProblemId,

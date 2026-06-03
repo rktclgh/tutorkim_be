@@ -128,7 +128,7 @@ class ProblemUploadBatchControllerIntegrationTest @Autowired constructor(
     }
 
     @Test
-    fun `student role cannot access problem upload write APIs`() {
+    fun `student role can reserve files but cannot access problem upload batch write APIs`() {
         val studentUser = userRepository.save(
             User(
                 email = "student-${UUID.randomUUID()}@example.com",
@@ -154,7 +154,7 @@ class ProblemUploadBatchControllerIntegrationTest @Autowired constructor(
             jsonPath("$.error.code") { value("FORBIDDEN") }
         }
 
-        mockMvc.post("/api/v1/files/upload-url") {
+        val response = mockMvc.post("/api/v1/files/upload-url") {
             with(user(studentUser.id!!.toString()).roles("STUDENT"))
             with(csrf())
             contentType = MediaType.APPLICATION_JSON
@@ -166,9 +166,13 @@ class ProblemUploadBatchControllerIntegrationTest @Autowired constructor(
                 ),
             )
         }.andExpect {
-            status { isForbidden() }
-            jsonPath("$.error.code") { value("FORBIDDEN") }
-        }
+            status { isOk() }
+            jsonPath("$.data.fileAssetId") { exists() }
+            jsonPath("$.data.storageKey") { exists() }
+        }.andReturn().response.contentAsString
+
+        val fileAssetId = UUID.fromString(objectMapper.readTree(response)["data"]["fileAssetId"].asText())
+        assertThat(fileAssetRepository.findById(fileAssetId).orElseThrow().ownerUserId).isEqualTo(studentUser.id!!)
     }
 
     @Test
