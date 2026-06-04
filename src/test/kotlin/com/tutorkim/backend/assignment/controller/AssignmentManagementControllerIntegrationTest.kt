@@ -961,6 +961,259 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
     }
 
     @Test
+    fun `student creates question and teacher answers with reusable solution file`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val problems = createProblems(fixture.teacherProfile.id!!, fixture.math.id!!, 1)
+        val assignmentId = createDraftThroughApi(fixture, problems.map { it.id!! })
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        val assignmentProblemId = assignmentProblemRepository.findByAssignmentIdOrderBySortOrderAsc(assignmentId).single().id!!
+        val questionResponse = mockMvc.post("/api/v1/student/assignments/$assignmentId/problems/$assignmentProblemId/questions") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf("body" to "이 문제에서 왜 사인법칙을 써야 하는지 모르겠어요."),
+            )
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.id") { exists() }
+            jsonPath("$.data.assignmentId") { value(assignmentId.toString()) }
+            jsonPath("$.data.assignmentProblemId") { value(assignmentProblemId.toString()) }
+            jsonPath("$.data.problemId") { value(problems[0].id!!.toString()) }
+            jsonPath("$.data.body") { value("이 문제에서 왜 사인법칙을 써야 하는지 모르겠어요.") }
+            jsonPath("$.data.teacherResponse") { value(null) }
+            jsonPath("$.data.resolved") { value(false) }
+        }.andReturn().response.contentAsString
+        val questionId = UUID.fromString(objectMapper.readTree(questionResponse)["data"]["id"].asText())
+
+        mockMvc.get("/api/v1/student/assignments/$assignmentId") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.questionCount") { value(1) }
+        }
+
+        mockMvc.get("/api/v1/assignments/$assignmentId/questions") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("unresolvedOnly", "true")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.length()") { value(1) }
+            jsonPath("$.data[0].id") { value(questionId.toString()) }
+            jsonPath("$.data[0].student.id") { value(fixture.studentProfile.id!!.toString()) }
+            jsonPath("$.data[0].student.name") { value(fixture.studentProfile.name) }
+            jsonPath("$.data[0].resolved") { value(false) }
+        }
+
+        val teacherSolutionFile = createFileAsset(fixture.teacherUser.id!!, "question-teacher-solution")
+        val answerResponse = mockMvc.post("/api/v1/assignments/$assignmentId/questions/$questionId/teacher-solution-files") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "fileAssetId" to teacherSolutionFile.id!!.toString(),
+                    "teacherResponse" to "사인법칙은 대변과 대각 정보가 함께 있을 때 바로 비율을 잡을 수 있어서 써요.",
+                    "visibleToStudent" to true,
+                    "persistToProblemBank" to true,
+                ),
+            )
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.questionId") { value(questionId.toString()) }
+            jsonPath("$.data.problemId") { value(problems[0].id!!.toString()) }
+            jsonPath("$.data.problemExplanationId") { exists() }
+            jsonPath("$.data.fileAssetId") { value(teacherSolutionFile.id!!.toString()) }
+            jsonPath("$.data.visibleToStudent") { value(true) }
+            jsonPath("$.data.persistedToProblemBank") { value(true) }
+        }.andReturn().response.contentAsString
+
+        val explanationId = UUID.fromString(objectMapper.readTree(answerResponse)["data"]["problemExplanationId"].asText())
+        val explanation = problemExplanationRepository.findById(explanationId).orElseThrow()
+        assertThat(explanation.problemId).isEqualTo(problems[0].id!!)
+        assertThat(explanation.fileAssetId).isEqualTo(teacherSolutionFile.id!!)
+        assertThat(explanation.visibleToStudent).isTrue()
+        assertThat(explanation.createdFromQuestionId).isEqualTo(questionId)
+        assertThat(explanation.createdBy).isEqualTo(fixture.teacherUser.id!!)
+
+        mockMvc.get("/api/v1/assignments/$assignmentId/questions") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("unresolvedOnly", "true")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.length()") { value(0) }
+        }
+
+        mockMvc.get("/api/v1/assignments/$assignmentId") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.questionCount") { value(0) }
+        }
+
+        mockMvc.get("/api/v1/student/assignments/$assignmentId") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.questionCount") { value(0) }
+        }
+
+        val secondTeacherSolutionFile = createFileAsset(fixture.teacherUser.id!!, "question-teacher-solution-2")
+        mockMvc.post("/api/v1/assignments/$assignmentId/questions/$questionId/teacher-solution-files") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "fileAssetId" to secondTeacherSolutionFile.id!!.toString(),
+                    "teacherResponse" to "다시 답변",
+                    "persistToProblemBank" to true,
+                ),
+            )
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.error.code") { value("CONFLICT") }
+            jsonPath("$.error.message") { value("이미 답변된 질문입니다.") }
+        }
+    }
+
+    @Test
+    fun `teacher cannot answer assignment question when bank problem is archived`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val problem = createProblems(fixture.teacherProfile.id!!, fixture.math.id!!, 1).single()
+        val assignmentId = createDraftThroughApi(fixture, listOf(problem.id!!))
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        val assignmentProblemId = assignmentProblemRepository.findByAssignmentIdOrderBySortOrderAsc(assignmentId).single().id!!
+        val questionResponse = mockMvc.post("/api/v1/student/assignments/$assignmentId/problems/$assignmentProblemId/questions") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(mapOf("body" to "풀이를 보고 싶어요."))
+        }.andExpect {
+            status { isOk() }
+        }.andReturn().response.contentAsString
+        val questionId = UUID.fromString(objectMapper.readTree(questionResponse)["data"]["id"].asText())
+
+        val savedProblem = problemRepository.findById(problem.id!!).orElseThrow()
+        savedProblem.archivedAt = Instant.now()
+        savedProblem.archivedBy = fixture.teacherUser.id!!
+        problemRepository.saveAndFlush(savedProblem)
+
+        val teacherSolutionFile = createFileAsset(fixture.teacherUser.id!!, "archived-question-solution")
+        mockMvc.post("/api/v1/assignments/$assignmentId/questions/$questionId/teacher-solution-files") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "fileAssetId" to teacherSolutionFile.id!!.toString(),
+                    "teacherResponse" to "답변",
+                    "persistToProblemBank" to true,
+                ),
+            )
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+            jsonPath("$.error.message") { value("문제를 찾을 수 없습니다.") }
+        }
+    }
+
+    @Test
+    fun `assignment question routes enforce ownership role and file ownership`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val otherFixture = createFixture()
+        createRelationship(otherFixture)
+        val problems = createProblems(fixture.teacherProfile.id!!, fixture.math.id!!, 1)
+        val assignmentId = createDraftThroughApi(fixture, problems.map { it.id!! })
+
+        mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        val assignmentProblemId = assignmentProblemRepository.findByAssignmentIdOrderBySortOrderAsc(assignmentId).single().id!!
+        mockMvc.post("/api/v1/student/assignments/$assignmentId/problems/$assignmentProblemId/questions") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(mapOf("body" to "질문"))
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.code") { value("FORBIDDEN") }
+        }
+
+        mockMvc.post("/api/v1/student/assignments/$assignmentId/problems/$assignmentProblemId/questions") {
+            with(user(otherFixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(mapOf("body" to "질문"))
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+        }
+
+        val questionResponse = mockMvc.post("/api/v1/student/assignments/$assignmentId/problems/$assignmentProblemId/questions") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(mapOf("body" to "질문"))
+        }.andExpect {
+            status { isOk() }
+        }.andReturn().response.contentAsString
+        val questionId = UUID.fromString(objectMapper.readTree(questionResponse)["data"]["id"].asText())
+
+        mockMvc.get("/api/v1/assignments/$assignmentId/questions") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.code") { value("FORBIDDEN") }
+        }
+
+        mockMvc.get("/api/v1/assignments/$assignmentId/questions") {
+            with(user(otherFixture.teacherUser.id!!.toString()).roles("TEACHER"))
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+        }
+
+        val otherTeacherFile = createFileAsset(otherFixture.teacherUser.id!!, "other-question-solution")
+        mockMvc.post("/api/v1/assignments/$assignmentId/questions/$questionId/teacher-solution-files") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "fileAssetId" to otherTeacherFile.id!!.toString(),
+                    "teacherResponse" to "답변",
+                ),
+            )
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+            jsonPath("$.error.message") { value("파일을 찾을 수 없습니다.") }
+        }
+    }
+
+    @Test
     fun `student answer save and submit enforce solve availability and ownership`() {
         val fixture = createFixture()
         createRelationship(fixture)

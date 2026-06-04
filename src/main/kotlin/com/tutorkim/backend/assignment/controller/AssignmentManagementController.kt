@@ -1,10 +1,14 @@
 package com.tutorkim.backend.assignment.controller
 
 import com.tutorkim.backend.assignment.dto.AssignmentDetailResponse
+import com.tutorkim.backend.assignment.dto.AnswerAssignmentQuestionRequest
+import com.tutorkim.backend.assignment.dto.AssignmentQuestionAnswerResponse
+import com.tutorkim.backend.assignment.dto.AssignmentQuestionResponse
 import com.tutorkim.backend.assignment.dto.AssignmentSummaryResponse
 import com.tutorkim.backend.assignment.dto.CreateAssignmentRequest
 import com.tutorkim.backend.assignment.entity.AssignmentStatus
 import com.tutorkim.backend.assignment.entity.AssignmentType
+import com.tutorkim.backend.assignment.service.AssignmentQuestionService
 import com.tutorkim.backend.assignment.service.AssignmentManagementService
 import com.tutorkim.backend.common.exception.ApiException
 import com.tutorkim.backend.common.exception.ErrorCode
@@ -24,6 +28,7 @@ import java.util.UUID
 @RequestMapping(API_PREFIX)
 class AssignmentManagementController(
     private val assignmentManagementService: AssignmentManagementService,
+    private val assignmentQuestionService: AssignmentQuestionService,
 ) {
     @PostMapping("/assignments")
     fun createAssignment(
@@ -79,6 +84,32 @@ class AssignmentManagementController(
         assignmentManagementService.getDetail(
             teacherUserId = currentUserId(authentication),
             assignmentId = assignmentId,
+        )
+
+    @GetMapping("/assignments/{assignmentId}/questions")
+    fun listAssignmentQuestions(
+        authentication: Authentication,
+        @PathVariable assignmentId: UUID,
+        @RequestParam(defaultValue = "false") unresolvedOnly: Boolean,
+    ): List<AssignmentQuestionResponse> =
+        assignmentQuestionService.listAssignmentQuestions(
+            teacherUserId = currentUserId(authentication),
+            assignmentId = assignmentId,
+            unresolvedOnly = unresolvedOnly,
+        )
+
+    @PostMapping("/assignments/{assignmentId}/questions/{questionId}/teacher-solution-files")
+    fun answerQuestionWithTeacherSolutionFile(
+        authentication: Authentication,
+        @PathVariable assignmentId: UUID,
+        @PathVariable questionId: UUID,
+        @Valid @RequestBody request: AnswerAssignmentQuestionRequest,
+    ): AssignmentQuestionAnswerResponse =
+        assignmentQuestionService.answerQuestionWithTeacherSolutionFile(
+            teacherUserId = currentUserId(authentication),
+            assignmentId = assignmentId,
+            questionId = questionId,
+            request = request,
         )
 
     private fun currentUserId(authentication: Authentication): UUID =
