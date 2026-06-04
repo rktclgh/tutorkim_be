@@ -107,9 +107,46 @@ begin
 			on submission_solution_files (file_asset_id)';
 	end if;
 
+	if to_regclass('public.assignments') is not null
+		and to_regclass('public.assignment_problems') is not null
+		and to_regclass('public.submission_answers') is not null
+		and to_regclass('public.teacher_students') is not null
+		and to_regclass('public.problem_explanations') is not null then
+		execute 'create table if not exists assignment_problem_questions (
+			id uuid primary key default gen_random_uuid(),
+			assignment_id uuid not null references assignments(id),
+			assignment_problem_id uuid not null references assignment_problems(id),
+			submission_answer_id uuid references submission_answers(id),
+			teacher_student_id uuid not null references teacher_students(id),
+			body text,
+			teacher_response text,
+			persisted_problem_explanation_id uuid references problem_explanations(id),
+			resolved_at timestamptz,
+			resolved_by uuid references users(id),
+			created_at timestamptz not null default now(),
+			updated_at timestamptz not null default now()
+		)';
+
+		execute 'create index if not exists assignment_problem_questions_assignment_idx
+			on assignment_problem_questions (assignment_id, resolved_at)';
+	end if;
+
 	if to_regclass('public.problem_explanations') is not null then
 		execute 'alter table problem_explanations
-			add column if not exists archived_at timestamptz';
+			add column if not exists archived_at timestamptz,
+			add column if not exists created_from_question_id uuid';
+	end if;
+
+	if to_regclass('public.problem_explanations') is not null
+		and to_regclass('public.assignment_problem_questions') is not null
+		and not exists (
+			select 1
+			from pg_constraint
+			where conname = 'problem_explanations_created_from_question_fk'
+		) then
+		execute 'alter table problem_explanations
+			add constraint problem_explanations_created_from_question_fk
+			foreign key (created_from_question_id) references assignment_problem_questions(id)';
 	end if;
 
 	if to_regclass('public.problem_upload_batches') is not null

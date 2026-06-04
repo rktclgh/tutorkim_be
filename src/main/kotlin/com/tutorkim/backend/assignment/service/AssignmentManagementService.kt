@@ -13,6 +13,7 @@ import com.tutorkim.backend.assignment.entity.AssignmentType
 import com.tutorkim.backend.assignment.entity.ResultVisibility
 import com.tutorkim.backend.assignment.entity.SubmissionStatus
 import com.tutorkim.backend.assignment.repository.AssignmentProblemRepository
+import com.tutorkim.backend.assignment.repository.AssignmentProblemQuestionRepository
 import com.tutorkim.backend.assignment.repository.AssignmentRepository
 import com.tutorkim.backend.assignment.repository.AssignmentSubmissionRepository
 import com.tutorkim.backend.assignment.repository.AssignmentTargetRepository
@@ -51,6 +52,7 @@ class AssignmentManagementService(
     private val problemExplanationRepository: ProblemExplanationRepository,
     private val assignmentRepository: AssignmentRepository,
     private val assignmentProblemRepository: AssignmentProblemRepository,
+    private val assignmentProblemQuestionRepository: AssignmentProblemQuestionRepository,
     private val assignmentTargetRepository: AssignmentTargetRepository,
     private val assignmentSubmissionRepository: AssignmentSubmissionRepository,
     private val submissionAnswerRepository: SubmissionAnswerRepository,
@@ -213,6 +215,8 @@ class AssignmentManagementService(
         ).associateBy { it.id!! }
         val problemCountsByAssignmentId = assignmentProblemRepository.countByAssignmentIdIn(assignmentIds)
             .associate { it.assignmentId to it.problemCount.toInt() }
+        val questionCountsByAssignmentId = assignmentProblemQuestionRepository.countUnresolvedByAssignmentIdIn(assignmentIds)
+            .associate { it.assignmentId to it.questionCount.toInt() }
         val submissionsByAssignmentId = assignmentSubmissionRepository.findByAssignmentIdIn(assignmentIds)
             .groupBy { it.assignmentId }
         return assignments.map { assignment ->
@@ -225,6 +229,7 @@ class AssignmentManagementService(
                 assignment = assignment,
                 relationship = relationship,
                 problemCount = problemCount,
+                questionCount = questionCountsByAssignmentId[assignment.id] ?: 0,
                 submissionStatus = submissionStatus,
             )
         }
@@ -294,6 +299,7 @@ class AssignmentManagementService(
             student = relationship.student,
             expired = assignmentAvailabilityPolicy.isExpired(assignment.dueAt, now),
             canSolve = canSolve,
+            questionCount = assignmentProblemQuestionRepository.countByAssignmentIdAndResolvedAtIsNull(assignment.id!!),
             submissionStatus = submissionStatus,
             problems = assignmentProblems.map { assignmentProblem ->
                 val problem = problemsById[assignmentProblem.problemId]
@@ -345,6 +351,7 @@ class AssignmentManagementService(
         assignment: Assignment,
         relationship: TeacherStudent,
         problemCount: Int,
+        questionCount: Int = 0,
         submissionStatus: SubmissionStatus,
     ): AssignmentSummaryResponse {
         Hibernate.initialize(relationship.student)
@@ -360,7 +367,7 @@ class AssignmentManagementService(
             assignment = assignment,
             student = relationship.student,
             problemCount = problemCount,
-            questionCount = 0,
+            questionCount = questionCount,
             expired = assignmentAvailabilityPolicy.isExpired(assignment.dueAt, now),
             canSolve = canSolve,
             submissionStatus = submissionStatus,

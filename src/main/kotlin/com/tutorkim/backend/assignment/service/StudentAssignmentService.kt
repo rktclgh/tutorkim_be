@@ -17,6 +17,7 @@ import com.tutorkim.backend.assignment.entity.SubmissionAnswer
 import com.tutorkim.backend.assignment.entity.SubmissionSolutionFile
 import com.tutorkim.backend.assignment.entity.SubmissionStatus
 import com.tutorkim.backend.assignment.repository.AssignmentProblemRepository
+import com.tutorkim.backend.assignment.repository.AssignmentProblemQuestionRepository
 import com.tutorkim.backend.assignment.repository.AssignmentRepository
 import com.tutorkim.backend.assignment.repository.AssignmentSubmissionRepository
 import com.tutorkim.backend.assignment.repository.SubmissionAnswerRepository
@@ -51,6 +52,7 @@ class StudentAssignmentService(
     private val subjectRepository: SubjectRepository,
     private val assignmentRepository: AssignmentRepository,
     private val assignmentProblemRepository: AssignmentProblemRepository,
+    private val assignmentProblemQuestionRepository: AssignmentProblemQuestionRepository,
     private val assignmentSubmissionRepository: AssignmentSubmissionRepository,
     private val submissionAnswerRepository: SubmissionAnswerRepository,
     private val submissionSolutionFileRepository: SubmissionSolutionFileRepository,
@@ -88,6 +90,8 @@ class StudentAssignmentService(
             .associateBy { it.id!! }
         val problemCountsByAssignmentId = assignmentProblemRepository.countByAssignmentIdIn(assignmentIds)
             .associate { it.assignmentId to it.problemCount.toInt() }
+        val questionCountsByAssignmentId = assignmentProblemQuestionRepository.countUnresolvedByAssignmentIdIn(assignmentIds)
+            .associate { it.assignmentId to it.questionCount.toInt() }
         val submissionsByAssignmentId = assignmentSubmissionRepository.findByAssignmentIdIn(assignmentIds)
             .filter { submission -> relationshipsById.containsKey(submission.teacherStudentId) }
             .associateBy { it.assignmentId }
@@ -119,7 +123,7 @@ class StudentAssignmentService(
                 canSolve = assignmentAvailabilityPolicy.canSolve(availability, now),
                 problemCount = problemCountsByAssignmentId[assignment.id] ?: 0,
                 answeredCount = submission?.id?.let { answeredCountsBySubmissionId[it] } ?: 0,
-                questionCount = 0,
+                questionCount = questionCountsByAssignmentId[assignment.id] ?: 0,
                 submissionStatus = submissionStatus,
             )
         }
@@ -157,7 +161,7 @@ class StudentAssignmentService(
             subject = subject,
             expired = assignmentAvailabilityPolicy.isExpired(assignment.dueAt, now),
             canSolve = assignmentAvailabilityPolicy.canSolve(availability, now),
-            questionCount = 0,
+            questionCount = assignmentProblemQuestionRepository.countByAssignmentIdAndResolvedAtIsNull(assignment.id!!),
             submissionStatus = submissionStatus,
             problems = buildProblemDetails(assignment, submission),
         )

@@ -39,6 +39,7 @@ data class AssignmentDetailResponse(
             student: StudentProfile,
             expired: Boolean,
             canSolve: Boolean,
+            questionCount: Int,
             submissionStatus: SubmissionStatus,
             problems: List<AssignmentProblemDetailResponse>,
         ): AssignmentDetailResponse =
@@ -51,7 +52,7 @@ data class AssignmentDetailResponse(
                 dueAt = assignment.dueAt,
                 expired = expired,
                 canSolve = canSolve,
-                questionCount = 0,
+                questionCount = questionCount,
                 status = assignment.status,
                 submissionStatus = submissionStatus,
                 resultVisibility = assignment.resultVisibility,

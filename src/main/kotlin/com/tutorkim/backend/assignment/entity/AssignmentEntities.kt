@@ -260,3 +260,45 @@ class SubmissionSolutionFile(
 	@Column(name = "created_at", nullable = false)
 	var createdAt: Instant = Instant.now(),
 )
+
+@Entity
+@Table(name = "assignment_problem_questions")
+class AssignmentProblemQuestion(
+	@Id
+	@GeneratedValue(strategy = GenerationType.UUID)
+	@Column(name = "id", nullable = false)
+	var id: UUID? = null,
+
+	@Column(name = "assignment_id", nullable = false)
+	var assignmentId: UUID,
+
+	@Column(name = "assignment_problem_id", nullable = false)
+	var assignmentProblemId: UUID,
+
+	@Column(name = "submission_answer_id")
+	var submissionAnswerId: UUID? = null,
+
+	@Column(name = "teacher_student_id", nullable = false)
+	var teacherStudentId: UUID,
+
+	@Column(name = "body", columnDefinition = "text")
+	var body: String? = null,
+
+	@Column(name = "teacher_response", columnDefinition = "text")
+	var teacherResponse: String? = null,
+
+	@Column(name = "persisted_problem_explanation_id")
+	var persistedProblemExplanationId: UUID? = null,
+
+	@Column(name = "resolved_at")
+	var resolvedAt: Instant? = null,
+
+	@Column(name = "resolved_by")
+	var resolvedBy: UUID? = null,
+
+	@Column(name = "created_at", nullable = false)
+	var createdAt: Instant = Instant.now(),
+
+	@Column(name = "updated_at", nullable = false)
+	var updatedAt: Instant = Instant.now(),
+)

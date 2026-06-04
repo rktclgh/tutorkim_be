@@ -1,10 +1,13 @@
 package com.tutorkim.backend.assignment.controller
 
 import com.tutorkim.backend.assignment.dto.AttachStudentSolutionFileRequest
+import com.tutorkim.backend.assignment.dto.AssignmentQuestionResponse
+import com.tutorkim.backend.assignment.dto.CreateAssignmentQuestionRequest
 import com.tutorkim.backend.assignment.dto.StudentAssignmentDetailResponse
 import com.tutorkim.backend.assignment.dto.StudentAssignmentSummaryResponse
 import com.tutorkim.backend.assignment.dto.SaveStudentAnswerRequest
 import com.tutorkim.backend.assignment.dto.SubmitStudentAnswersRequest
+import com.tutorkim.backend.assignment.service.AssignmentQuestionService
 import com.tutorkim.backend.assignment.service.StudentAssignmentService
 import com.tutorkim.backend.common.exception.ApiException
 import com.tutorkim.backend.common.exception.ErrorCode
@@ -25,6 +28,7 @@ import java.util.UUID
 @RequestMapping(API_PREFIX)
 class StudentAssignmentController(
     private val studentAssignmentService: StudentAssignmentService,
+    private val assignmentQuestionService: AssignmentQuestionService,
 ) {
     @GetMapping("/student/assignments")
     fun listMyAssignments(
@@ -93,6 +97,20 @@ class StudentAssignmentController(
         studentAssignmentService.submitMyAnswers(
             studentUserId = currentUserId(authentication),
             assignmentId = assignmentId,
+            request = request,
+        )
+
+    @PostMapping("/student/assignments/{assignmentId}/problems/{assignmentProblemId}/questions")
+    fun createQuestion(
+        authentication: Authentication,
+        @PathVariable assignmentId: UUID,
+        @PathVariable assignmentProblemId: UUID,
+        @Valid @RequestBody request: CreateAssignmentQuestionRequest,
+    ): AssignmentQuestionResponse =
+        assignmentQuestionService.createStudentQuestion(
+            studentUserId = currentUserId(authentication),
+            assignmentId = assignmentId,
+            assignmentProblemId = assignmentProblemId,
             request = request,
         )
 

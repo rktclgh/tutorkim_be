@@ -2,6 +2,7 @@ package com.tutorkim.backend.assignment.repository
 
 import com.tutorkim.backend.assignment.entity.Assignment
 import com.tutorkim.backend.assignment.entity.AssignmentProblem
+import com.tutorkim.backend.assignment.entity.AssignmentProblemQuestion
 import com.tutorkim.backend.assignment.entity.AssignmentSubmission
 import com.tutorkim.backend.assignment.entity.AssignmentStatus
 import com.tutorkim.backend.assignment.entity.AssignmentTarget
@@ -199,4 +200,49 @@ interface SubmissionSolutionFileRepository : JpaRepository<SubmissionSolutionFil
 	fun findBySubmissionAnswerIdIn(submissionAnswerIds: Collection<UUID>): List<SubmissionSolutionFile>
 
 	fun existsByFileAssetId(fileAssetId: UUID): Boolean
+}
+
+interface AssignmentProblemQuestionRepository : JpaRepository<AssignmentProblemQuestion, UUID> {
+	fun findByAssignmentIdOrderByCreatedAtDesc(assignmentId: UUID): List<AssignmentProblemQuestion>
+
+	fun findByAssignmentIdAndResolvedAtIsNullOrderByCreatedAtDesc(assignmentId: UUID): List<AssignmentProblemQuestion>
+
+	fun findByIdAndAssignmentId(
+		id: UUID,
+		assignmentId: UUID,
+	): AssignmentProblemQuestion?
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query(
+		"""
+		select question
+		from AssignmentProblemQuestion question
+		where question.id = :id
+		  and question.assignmentId = :assignmentId
+		""",
+	)
+	fun findByIdAndAssignmentIdForUpdate(
+		@Param("id") id: UUID,
+		@Param("assignmentId") assignmentId: UUID,
+	): AssignmentProblemQuestion?
+
+	@Query(
+		"""
+		select question.assignmentId as assignmentId, count(question.id) as questionCount
+		from AssignmentProblemQuestion question
+		where question.assignmentId in :assignmentIds
+		  and question.resolvedAt is null
+		group by question.assignmentId
+		""",
+	)
+	fun countUnresolvedByAssignmentIdIn(
+		@Param("assignmentIds") assignmentIds: Collection<UUID>,
+	): List<AssignmentQuestionCountView>
+
+	fun countByAssignmentIdAndResolvedAtIsNull(assignmentId: UUID): Int
+}
+
+interface AssignmentQuestionCountView {
+	val assignmentId: UUID
+	val questionCount: Long
 }
