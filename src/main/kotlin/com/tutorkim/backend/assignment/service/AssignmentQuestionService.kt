@@ -24,7 +24,6 @@ import com.tutorkim.backend.student.entity.TeacherStudent
 import com.tutorkim.backend.student.repository.StudentProfileRepository
 import com.tutorkim.backend.student.repository.TeacherProfileRepository
 import com.tutorkim.backend.student.repository.TeacherStudentRepository
-import org.hibernate.Hibernate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -98,7 +97,6 @@ class AssignmentQuestionService(
         val teacherId = findTeacherId(teacherUserId)
         val assignment = assignmentRepository.findByIdAndTeacherId(assignmentId, teacherId)
             ?: throw ApiException(ErrorCode.NOT_FOUND, "과제를 찾을 수 없습니다.")
-        val relationship = findHistoricalRelationship(assignment.teacherStudentId!!, teacherId)
         val questions = if (unresolvedOnly) {
             assignmentProblemQuestionRepository.findByAssignmentIdAndResolvedAtIsNullOrderByCreatedAtDesc(assignment.id!!)
         } else {
@@ -109,11 +107,16 @@ class AssignmentQuestionService(
         }
         val assignmentProblemsById = assignmentProblemRepository.findByAssignmentIdOrderBySortOrderAsc(assignment.id!!)
             .associateBy { it.id!! }
-        Hibernate.initialize(relationship.student)
+        val relationshipsById = teacherStudentRepository.findByIdInAndTeacherIdWithStudent(
+            ids = questions.map { it.teacherStudentId }.toSet(),
+            teacherId = teacherId,
+        ).associateBy { it.id!! }
 
         return questions.map { question ->
             val assignmentProblem = assignmentProblemsById[question.assignmentProblemId]
                 ?: throw ApiException(ErrorCode.NOT_FOUND, "과제 문제를 찾을 수 없습니다.")
+            val relationship = relationshipsById[question.teacherStudentId]
+                ?: throw ApiException(ErrorCode.NOT_FOUND, "학생 관계를 찾을 수 없습니다.")
             AssignmentQuestionResponse.from(question, assignmentProblem, relationship.student)
         }
     }
@@ -148,7 +151,7 @@ class AssignmentQuestionService(
         ) ?: throw ApiException(ErrorCode.NOT_FOUND, "파일을 찾을 수 없습니다.")
 
         val now = Instant.now()
-        val teacherResponse = request.teacherResponse?.trim()?.ifBlank { null }
+        val teacherResponse = request.teacherResponse?.trim()?.takeIf { it.isNotBlank() }
         val explanation = problemExplanationRepository.saveAndFlush(
             ProblemExplanation(
                 problemId = problem.id!!,
@@ -198,14 +201,6 @@ class AssignmentQuestionService(
             id = teacherStudentId,
             studentId = studentId,
         ) ?: throw ApiException(ErrorCode.NOT_FOUND, "학생 관계를 찾을 수 없습니다.")
-
-    private fun findHistoricalRelationship(
-        teacherStudentId: UUID,
-        teacherId: UUID,
-    ): TeacherStudent =
-        teacherStudentRepository.findById(teacherStudentId)
-            .filter { it.teacher.id == teacherId }
-            .orElseThrow { ApiException(ErrorCode.NOT_FOUND, "학생 관계를 찾을 수 없습니다.") }
 
     private fun findTeacherId(teacherUserId: UUID): UUID =
         teacherProfileRepository.findByUser_Id(teacherUserId)?.id
