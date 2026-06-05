@@ -328,6 +328,9 @@ class WrongAnswerNotebookService(
             subjectId = subjectId,
             problemIds = problemIds,
         )
+        if (problemsById.isEmpty()) {
+            return emptyList()
+        }
         data class AssignmentSourceCandidate(
             val assignmentProblem: AssignmentProblem,
             val problem: Problem,
@@ -402,6 +405,9 @@ class WrongAnswerNotebookService(
             subjectId = subjectId,
             problemIds = notebookProblems.map { it.problemId }.toSet(),
         )
+        if (problemsById.isEmpty()) {
+            return emptyList()
+        }
         val reviewAssignmentIds = notebooks.mapNotNull { it.assignmentId }
         val reviewAssignmentProblemsByAssignmentAndProblemId = if (reviewAssignmentIds.isEmpty()) {
             emptyMap()
