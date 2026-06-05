@@ -85,6 +85,11 @@ class SecurityConfig(
 					)
 					.hasRole("STUDENT")
 					.requestMatchers(
+						HttpMethod.GET,
+						"/api/v1/student/wrong-answer-notebooks",
+					)
+					.hasRole("STUDENT")
+					.requestMatchers(
 						HttpMethod.DELETE,
 						"/api/v1/students/*/teacher-relationship",
 					)
@@ -97,6 +102,21 @@ class SecurityConfig(
 					.requestMatchers(
 						HttpMethod.PUT,
 						"/api/v1/students/*/subjects",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.POST,
+						"/api/v1/students/*/wrong-answer-notebooks",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.GET,
+						"/api/v1/students/*/wrong-answer-notebooks",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.POST,
+						"/api/v1/wrong-answer-notebooks/*/publish",
 					)
 					.hasRole("TEACHER")
 					.requestMatchers(

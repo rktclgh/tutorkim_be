@@ -91,6 +91,22 @@ interface TeacherStudentRepository : JpaRepository<TeacherStudent, UUID> {
 
     @Query(
         """
+        select relationship
+        from TeacherStudent relationship
+        join relationship.student student
+        where relationship.teacher.user.id = :teacherUserId
+          and relationship.student.id = :studentId
+          and relationship.active = true
+          and student.deletedAt is null
+        """,
+    )
+    fun findActiveByTeacherUserIdAndStudentId(
+        @Param("teacherUserId") teacherUserId: UUID,
+        @Param("studentId") studentId: UUID,
+    ): TeacherStudent?
+
+    @Query(
+        """
         select distinct relationship
         from TeacherStudent relationship
         join fetch relationship.student student
@@ -102,6 +118,23 @@ interface TeacherStudentRepository : JpaRepository<TeacherStudent, UUID> {
         @Param("ids") ids: Collection<UUID>,
         @Param("teacherId") teacherId: UUID,
     ): List<TeacherStudent>
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query(
+        """
+        select relationship
+        from TeacherStudent relationship
+        join fetch relationship.student student
+        where relationship.id = :id
+          and relationship.teacher.id = :teacherId
+          and relationship.active = true
+          and student.deletedAt is null
+        """,
+    )
+    fun findActiveByIdAndTeacherIdForUpdate(
+        @Param("id") id: UUID,
+        @Param("teacherId") teacherId: UUID,
+    ): TeacherStudent?
 
     @Query(
         """
@@ -117,6 +150,21 @@ interface TeacherStudentRepository : JpaRepository<TeacherStudent, UUID> {
     )
     fun findByIdInAndStudentIdWithTeacher(
         @Param("ids") ids: Collection<UUID>,
+        @Param("studentId") studentId: UUID,
+    ): List<TeacherStudent>
+
+    @Query(
+        """
+        select distinct relationship
+        from TeacherStudent relationship
+        join fetch relationship.teacher teacher
+        join fetch relationship.student student
+        where student.id = :studentId
+          and relationship.active = true
+          and student.deletedAt is null
+        """,
+    )
+    fun findActiveByStudentIdWithTeacher(
         @Param("studentId") studentId: UUID,
     ): List<TeacherStudent>
 
