@@ -31,10 +31,24 @@ interface WrongAnswerNotebookRepository : JpaRepository<WrongAnswerNotebook, UUI
         teacherStudentIds: Collection<UUID>,
         status: WrongAnswerNotebookStatus,
     ): List<WrongAnswerNotebook>
+
+    fun findByTeacherStudentIdAndSubjectIdAndStatusOrderByCreatedAtDesc(
+        teacherStudentId: UUID,
+        subjectId: UUID,
+        status: WrongAnswerNotebookStatus,
+    ): List<WrongAnswerNotebook>
+
+    fun findByTeacherStudentIdAndSubjectIdAndStatusOrderByPublishedAtDescCreatedAtDesc(
+        teacherStudentId: UUID,
+        subjectId: UUID,
+        status: WrongAnswerNotebookStatus,
+    ): List<WrongAnswerNotebook>
 }
 
 interface WrongAnswerNotebookProblemRepository : JpaRepository<WrongAnswerNotebookProblem, UUID> {
     fun findByNotebookIdOrderBySortOrderAsc(notebookId: UUID): List<WrongAnswerNotebookProblem>
+
+    fun findByNotebookIdInOrderBySortOrderAsc(notebookIds: Collection<UUID>): List<WrongAnswerNotebookProblem>
 
     @Query(
         """

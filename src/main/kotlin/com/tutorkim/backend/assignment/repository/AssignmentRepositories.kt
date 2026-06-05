@@ -103,6 +103,13 @@ interface AssignmentRepository : JpaRepository<Assignment, UUID> {
 		@Param("studentId") studentId: UUID,
 		@Param("statuses") statuses: Collection<AssignmentStatus>,
 	): Assignment?
+
+	fun findByTeacherStudentIdAndSubjectIdAndAssignmentTypeInAndStatusInOrderByCreatedAtDesc(
+		teacherStudentId: UUID,
+		subjectId: UUID,
+		assignmentTypes: Collection<AssignmentType>,
+		statuses: Collection<AssignmentStatus>,
+	): List<Assignment>
 }
 
 interface AssignmentProblemRepository : JpaRepository<AssignmentProblem, UUID> {
@@ -114,6 +121,8 @@ interface AssignmentProblemRepository : JpaRepository<AssignmentProblem, UUID> {
 	): AssignmentProblem?
 
 	fun countByAssignmentId(assignmentId: UUID): Int
+
+	fun findByAssignmentIdIn(assignmentIds: Collection<UUID>): List<AssignmentProblem>
 
 	@Query(
 		"""

@@ -39,6 +39,11 @@ import com.tutorkim.backend.student.repository.TeacherStudentRepository
 import com.tutorkim.backend.student.repository.TeacherStudentSubjectRepository
 import com.tutorkim.backend.subject.entity.Subject
 import com.tutorkim.backend.subject.repository.SubjectRepository
+import com.tutorkim.backend.wronganswer.entity.WrongAnswerNotebook
+import com.tutorkim.backend.wronganswer.entity.WrongAnswerNotebookProblem
+import com.tutorkim.backend.wronganswer.entity.WrongAnswerNotebookStatus
+import com.tutorkim.backend.wronganswer.repository.WrongAnswerNotebookProblemRepository
+import com.tutorkim.backend.wronganswer.repository.WrongAnswerNotebookRepository
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -72,6 +77,8 @@ class WrongAnswerNotebookControllerIntegrationTest @Autowired constructor(
     private val assignmentTargetRepository: AssignmentTargetRepository,
     private val assignmentSubmissionRepository: AssignmentSubmissionRepository,
     private val submissionAnswerRepository: SubmissionAnswerRepository,
+    private val wrongAnswerNotebookRepository: WrongAnswerNotebookRepository,
+    private val wrongAnswerNotebookProblemRepository: WrongAnswerNotebookProblemRepository,
 ) {
     private val objectMapper = jacksonObjectMapper()
 
@@ -150,6 +157,234 @@ class WrongAnswerNotebookControllerIntegrationTest @Autowired constructor(
             jsonPath("$.data[0].id") { value(assignmentId.toString()) }
             jsonPath("$.data[0].assignmentType") { value("REVIEW_SET") }
             jsonPath("$.data[0].submissionStatus") { value("NOT_SUBMITTED") }
+        }
+    }
+
+    @Test
+    fun `teacher lists wrong-answer notebook sources from assignments and previous notebooks`() {
+        val fixture = createFixture()
+        val relationship = createRelationship(fixture)
+        val sourceAssignmentProblem = createPublishedSourceAssignment(fixture, relationship, "삼각함수 숙제")
+        createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "정답 숙제",
+            attemptStatus = ProblemAttemptStatus.CORRECT_FIRST,
+            isCorrect = true,
+        )
+        createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "부분 저장 숙제",
+            submissionStatus = SubmissionStatus.PARTIAL,
+        )
+
+        val draftResponse = mockMvc.post("/api/v1/students/${fixture.studentProfile.id}/wrong-answer-notebooks") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = notebookBody(fixture, sourceAssignmentProblem.id!!, sourceAssignmentProblem.problemId.toString())
+        }.andExpect {
+            status { isOk() }
+        }.andReturn().response.contentAsString
+        val notebookId = UUID.fromString(objectMapper.readTree(draftResponse)["data"]["id"].asText())
+        mockMvc.post("/api/v1/wrong-answer-notebooks/$notebookId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+
+        mockMvc.get("/api/v1/students/${fixture.studentProfile.id}/wrong-answer-notebook-sources") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("subjectId", fixture.math.id!!.toString())
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.assignments.length()") { value(1) }
+            jsonPath("$.data.assignments[0].uniqueProblemId") { value(sourceAssignmentProblem.problemId.toString()) }
+            jsonPath("$.data.assignments[0].assignmentProblemId") { value(sourceAssignmentProblem.id!!.toString()) }
+            jsonPath("$.data.assignments[0].sourceType") { value("ASSIGNMENT") }
+            jsonPath("$.data.assignments[0].attemptStatus") { value("WRONG_FIRST") }
+            jsonPath("$.data.assignments[0].retryCount") { value(0) }
+            jsonPath("$.data.assignments[0].selected") { value(true) }
+            jsonPath("$.data.previousNotebooks.length()") { value(1) }
+            jsonPath("$.data.previousNotebooks[0].uniqueProblemId") { value(sourceAssignmentProblem.problemId.toString()) }
+            jsonPath("$.data.previousNotebooks[0].assignmentProblemId") { value(sourceAssignmentProblem.id!!.toString()) }
+            jsonPath("$.data.previousNotebooks[0].sourceType") { value("PREVIOUS_NOTEBOOK") }
+            jsonPath("$.data.previousNotebooks[0].selected") { value(true) }
+        }
+    }
+
+    @Test
+    fun `wrong-answer notebook sources enforce teacher relationship and role`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val otherFixture = createFixture()
+        createRelationship(otherFixture)
+
+        mockMvc.get("/api/v1/students/${fixture.studentProfile.id}/wrong-answer-notebook-sources") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            param("subjectId", fixture.math.id!!.toString())
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.code") { value("FORBIDDEN") }
+        }
+
+        mockMvc.get("/api/v1/students/${otherFixture.studentProfile.id}/wrong-answer-notebook-sources") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("subjectId", otherFixture.math.id!!.toString())
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+        }
+    }
+
+    @Test
+    fun `wrong-answer notebook sources keep older wrong assignment when newer history is only partial`() {
+        val fixture = createFixture()
+        val relationship = createRelationship(fixture)
+        val sharedProblem = createProblem(fixture.teacherProfile.id!!, fixture.math.id!!)
+        val olderWrong = createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "제출된 오답 숙제",
+            problem = sharedProblem,
+            createdAt = Instant.parse("2026-06-01T00:00:00Z"),
+            submittedAt = Instant.parse("2026-06-01T01:00:00Z"),
+        )
+        createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "부분 저장된 최신 숙제",
+            problem = sharedProblem,
+            submissionStatus = SubmissionStatus.PARTIAL,
+            createdAt = Instant.parse("2026-06-02T00:00:00Z"),
+            submittedAt = null,
+        )
+
+        mockMvc.get("/api/v1/students/${fixture.studentProfile.id}/wrong-answer-notebook-sources") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("subjectId", fixture.math.id!!.toString())
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.assignments.length()") { value(1) }
+            jsonPath("$.data.assignments[0].assignmentProblemId") { value(olderWrong.id!!.toString()) }
+            jsonPath("$.data.assignments[0].attemptStatus") { value("WRONG_FIRST") }
+        }
+    }
+
+    @Test
+    fun `wrong-answer notebook sources use latest submitted assignment per problem`() {
+        val fixture = createFixture()
+        val relationship = createRelationship(fixture)
+        val sharedProblem = createProblem(fixture.teacherProfile.id!!, fixture.math.id!!)
+        createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "이전 오답 숙제",
+            problem = sharedProblem,
+            createdAt = Instant.parse("2026-06-01T00:00:00Z"),
+            submittedAt = Instant.parse("2026-06-01T01:00:00Z"),
+        )
+        createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "최신 정답 숙제",
+            problem = sharedProblem,
+            attemptStatus = ProblemAttemptStatus.CORRECT_FIRST,
+            isCorrect = true,
+            createdAt = Instant.parse("2026-06-02T00:00:00Z"),
+            submittedAt = Instant.parse("2026-06-02T01:00:00Z"),
+        )
+
+        mockMvc.get("/api/v1/students/${fixture.studentProfile.id}/wrong-answer-notebook-sources") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("subjectId", fixture.math.id!!.toString())
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.assignments.length()") { value(0) }
+        }
+    }
+
+    @Test
+    fun `wrong-answer notebook sources exclude previous notebook when latest review is correct first`() {
+        val fixture = createFixture()
+        val relationship = createRelationship(fixture)
+        val sharedProblem = createProblem(fixture.teacherProfile.id!!, fixture.math.id!!)
+        val sourceAssignmentProblem = createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "원본 오답 숙제",
+            problem = sharedProblem,
+        )
+        createPublishedNotebookWithReview(
+            fixture = fixture,
+            relationship = relationship,
+            sourceAssignmentProblem = sourceAssignmentProblem,
+            title = "이전 오답노트",
+            notebookCreatedAt = Instant.parse("2026-06-01T00:00:00Z"),
+            reviewAttemptStatus = ProblemAttemptStatus.WRONG_FIRST,
+            reviewSubmittedAt = Instant.parse("2026-06-01T01:00:00Z"),
+        )
+        createPublishedNotebookWithReview(
+            fixture = fixture,
+            relationship = relationship,
+            sourceAssignmentProblem = sourceAssignmentProblem,
+            title = "최신 오답노트",
+            notebookCreatedAt = Instant.parse("2026-06-02T00:00:00Z"),
+            reviewAttemptStatus = ProblemAttemptStatus.CORRECT_FIRST,
+            reviewIsCorrect = true,
+            reviewSubmittedAt = Instant.parse("2026-06-02T01:00:00Z"),
+        )
+
+        mockMvc.get("/api/v1/students/${fixture.studentProfile.id}/wrong-answer-notebook-sources") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("subjectId", fixture.math.id!!.toString())
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.previousNotebooks.length()") { value(0) }
+        }
+    }
+
+    @Test
+    fun `wrong-answer notebook sources order previous notebooks by published time`() {
+        val fixture = createFixture()
+        val relationship = createRelationship(fixture)
+        val sharedProblem = createProblem(fixture.teacherProfile.id!!, fixture.math.id!!)
+        val sourceAssignmentProblem = createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "원본 오답 숙제",
+            problem = sharedProblem,
+        )
+        createPublishedNotebookWithReview(
+            fixture = fixture,
+            relationship = relationship,
+            sourceAssignmentProblem = sourceAssignmentProblem,
+            title = "나중에 작성된 이전 발행 노트",
+            notebookCreatedAt = Instant.parse("2026-06-03T00:00:00Z"),
+            notebookPublishedAt = Instant.parse("2026-06-01T00:00:00Z"),
+            reviewAttemptStatus = ProblemAttemptStatus.WRONG_FIRST,
+            reviewSubmittedAt = Instant.parse("2026-06-01T01:00:00Z"),
+        )
+        createPublishedNotebookWithReview(
+            fixture = fixture,
+            relationship = relationship,
+            sourceAssignmentProblem = sourceAssignmentProblem,
+            title = "먼저 작성된 최신 발행 노트",
+            notebookCreatedAt = Instant.parse("2026-06-01T00:00:00Z"),
+            notebookPublishedAt = Instant.parse("2026-06-03T00:00:00Z"),
+            reviewAttemptStatus = ProblemAttemptStatus.CORRECT_FIRST,
+            reviewIsCorrect = true,
+            reviewSubmittedAt = Instant.parse("2026-06-03T01:00:00Z"),
+        )
+
+        mockMvc.get("/api/v1/students/${fixture.studentProfile.id}/wrong-answer-notebook-sources") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("subjectId", fixture.math.id!!.toString())
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.previousNotebooks.length()") { value(0) }
         }
     }
 
@@ -342,22 +577,27 @@ class WrongAnswerNotebookControllerIntegrationTest @Autowired constructor(
         fixture: Fixture,
         relationship: TeacherStudent,
         title: String,
+        problem: Problem = createProblem(fixture.teacherProfile.id!!, fixture.math.id!!),
         attemptStatus: ProblemAttemptStatus = ProblemAttemptStatus.WRONG_FIRST,
         isCorrect: Boolean = false,
         submissionStatus: SubmissionStatus = SubmissionStatus.SUBMITTED,
+        assignmentType: AssignmentType = AssignmentType.HOMEWORK,
+        createdAt: Instant = Instant.now(),
+        submittedAt: Instant? = Instant.now(),
     ): AssignmentProblem {
-        val problem = createProblem(fixture.teacherProfile.id!!, fixture.math.id!!)
         val assignment = assignmentRepository.saveAndFlush(
             Assignment(
                 teacherId = fixture.teacherProfile.id!!,
                 teacherStudentId = relationship.id!!,
                 subjectId = fixture.math.id!!,
                 title = title,
-                assignmentType = AssignmentType.HOMEWORK,
+                assignmentType = assignmentType,
                 status = AssignmentStatus.PUBLISHED,
                 resultVisibility = ResultVisibility.HIDDEN_UNTIL_RELEASED,
                 dueAt = Instant.parse("2030-06-04T10:00:00Z"),
-                publishedAt = Instant.now(),
+                publishedAt = createdAt,
+                createdAt = createdAt,
+                updatedAt = createdAt,
             ),
         )
         assignmentTargetRepository.save(
@@ -381,6 +621,7 @@ class WrongAnswerNotebookControllerIntegrationTest @Autowired constructor(
                 status = submissionStatus,
                 gradingStatus = GradingStatus.AUTO_GRADED,
                 totalPoints = BigDecimal.ONE,
+                submittedAt = submittedAt,
             ),
         )
         submissionAnswerRepository.save(
@@ -394,6 +635,56 @@ class WrongAnswerNotebookControllerIntegrationTest @Autowired constructor(
             ),
         )
         return assignmentProblem
+    }
+
+    private fun createPublishedNotebookWithReview(
+        fixture: Fixture,
+        relationship: TeacherStudent,
+        sourceAssignmentProblem: AssignmentProblem,
+        title: String,
+        notebookCreatedAt: Instant,
+        notebookPublishedAt: Instant = notebookCreatedAt,
+        reviewAttemptStatus: ProblemAttemptStatus,
+        reviewIsCorrect: Boolean = false,
+        reviewSubmittedAt: Instant,
+    ): WrongAnswerNotebook {
+        val reviewAssignmentProblem = createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "$title 복습 과제",
+            problem = problemRepository.findById(sourceAssignmentProblem.problemId).orElseThrow(),
+            attemptStatus = reviewAttemptStatus,
+            isCorrect = reviewIsCorrect,
+            assignmentType = AssignmentType.REVIEW_SET,
+            createdAt = notebookCreatedAt,
+            submittedAt = reviewSubmittedAt,
+        )
+        val notebook = wrongAnswerNotebookRepository.saveAndFlush(
+            WrongAnswerNotebook(
+                teacherId = fixture.teacherProfile.id!!,
+                teacherStudentId = relationship.id!!,
+                subjectId = fixture.math.id!!,
+                assignmentId = reviewAssignmentProblem.assignmentId,
+                title = title,
+                sourceSummary = "1문제",
+                status = WrongAnswerNotebookStatus.PUBLISHED,
+                dueAt = Instant.parse("2030-06-05T10:00:00Z"),
+                publishedAt = notebookPublishedAt,
+                createdAt = notebookCreatedAt,
+                updatedAt = notebookCreatedAt,
+            ),
+        )
+        wrongAnswerNotebookProblemRepository.saveAndFlush(
+            WrongAnswerNotebookProblem(
+                notebookId = notebook.id!!,
+                problemId = sourceAssignmentProblem.problemId,
+                sourceAssignmentProblemId = sourceAssignmentProblem.id!!,
+                uniqueProblemId = sourceAssignmentProblem.problemId.toString(),
+                sortOrder = 1,
+                createdAt = notebookCreatedAt,
+            ),
+        )
+        return notebook
     }
 
     private fun createRelationship(fixture: Fixture): TeacherStudent {

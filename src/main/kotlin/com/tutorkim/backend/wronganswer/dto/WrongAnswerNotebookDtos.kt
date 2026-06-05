@@ -1,6 +1,7 @@
 package com.tutorkim.backend.wronganswer.dto
 
 import com.tutorkim.backend.assignment.entity.SubmissionStatus
+import com.tutorkim.backend.assignment.entity.ProblemAttemptStatus
 import com.tutorkim.backend.wronganswer.entity.WrongAnswerNotebook
 import com.tutorkim.backend.wronganswer.entity.WrongAnswerNotebookStatus
 import jakarta.validation.Valid
@@ -35,6 +36,25 @@ data class WrongAnswerProblemRefRequest(
     @field:NotNull
     val sourceAssignmentProblemId: UUID,
 )
+
+data class WrongAnswerNotebookSourcesResponse(
+    val previousNotebooks: List<WrongAnswerNotebookSourceItemResponse>,
+    val assignments: List<WrongAnswerNotebookSourceItemResponse>,
+)
+
+data class WrongAnswerNotebookSourceItemResponse(
+    val uniqueProblemId: String,
+    val assignmentProblemId: UUID,
+    val sourceType: WrongAnswerNotebookSourceType,
+    val attemptStatus: ProblemAttemptStatus,
+    val retryCount: Int,
+    val selected: Boolean,
+)
+
+enum class WrongAnswerNotebookSourceType {
+    PREVIOUS_NOTEBOOK,
+    ASSIGNMENT,
+}
 
 data class WrongAnswerNotebookResponse(
     val id: UUID,
