@@ -178,6 +178,11 @@ interface SubmissionAnswerRepository : JpaRepository<SubmissionAnswer, UUID> {
 		problemIds: Collection<UUID>,
 	): List<SubmissionAnswer>
 
+	fun findBySubmissionIdInAndProblemIdIn(
+		submissionIds: Collection<UUID>,
+		problemIds: Collection<UUID>,
+	): List<SubmissionAnswer>
+
 	@Query(
 		"""
 		select answer.submissionId as submissionId, count(answer.id) as answerCount

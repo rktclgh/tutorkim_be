@@ -66,6 +66,9 @@ begin
 	if not exists (select 1 from pg_type where typname = 'problem_attempt_status') then
 		create type problem_attempt_status as enum ('CORRECT_FIRST', 'WRONG_FIRST', 'CORRECT_RETRY', 'UNKNOWN', 'PENDING');
 	end if;
+	if not exists (select 1 from pg_type where typname = 'wrong_answer_notebook_status') then
+		create type wrong_answer_notebook_status as enum ('DRAFT', 'PUBLISHED');
+	end if;
 end $$;;
 
 do $$
@@ -147,6 +150,46 @@ begin
 		execute 'alter table problem_explanations
 			add constraint problem_explanations_created_from_question_fk
 			foreign key (created_from_question_id) references assignment_problem_questions(id)';
+	end if;
+
+	if to_regclass('public.assignments') is not null
+		and to_regclass('public.assignment_problems') is not null
+		and to_regclass('public.teacher_students') is not null
+		and to_regclass('public.subjects') is not null
+		and to_regclass('public.problems') is not null then
+		execute 'create table if not exists wrong_answer_notebooks (
+			id uuid primary key default gen_random_uuid(),
+			teacher_id uuid not null references teacher_profiles(id),
+			teacher_student_id uuid not null references teacher_students(id),
+			subject_id uuid not null references subjects(id),
+			assignment_id uuid references assignments(id),
+			title varchar(150) not null,
+			source_summary varchar(200),
+			status wrong_answer_notebook_status not null default ''DRAFT'',
+			due_at timestamptz,
+			published_at timestamptz,
+			created_at timestamptz not null default now(),
+			updated_at timestamptz not null default now()
+		)';
+
+		execute 'create index if not exists wrong_answer_notebooks_student_idx
+			on wrong_answer_notebooks (teacher_student_id, status, due_at)';
+
+		execute 'create table if not exists wrong_answer_notebook_problems (
+			id uuid primary key default gen_random_uuid(),
+			notebook_id uuid not null references wrong_answer_notebooks(id) on delete cascade,
+			problem_id uuid not null references problems(id),
+			source_assignment_problem_id uuid not null references assignment_problems(id),
+			unique_problem_id varchar(120) not null,
+			sort_order integer not null,
+			created_at timestamptz not null default now(),
+			constraint wrong_answer_notebook_problem_unique unique (notebook_id, problem_id),
+			constraint wrong_answer_notebook_unique_problem_unique unique (notebook_id, unique_problem_id),
+			constraint wrong_answer_notebook_problem_order_unique unique (notebook_id, sort_order)
+		)';
+
+		execute 'create index if not exists wrong_answer_notebook_problems_problem_idx
+			on wrong_answer_notebook_problems (problem_id)';
 	end if;
 
 	if to_regclass('public.problem_upload_batches') is not null
