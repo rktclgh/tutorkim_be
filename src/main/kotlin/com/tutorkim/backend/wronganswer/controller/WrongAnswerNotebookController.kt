@@ -6,6 +6,7 @@ import com.tutorkim.backend.common.web.API_PREFIX
 import com.tutorkim.backend.wronganswer.dto.CreateWrongAnswerNotebookRequest
 import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookListResponse
 import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookResponse
+import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookSourcesResponse
 import com.tutorkim.backend.wronganswer.service.WrongAnswerNotebookService
 import jakarta.validation.Valid
 import org.springframework.security.core.Authentication
@@ -33,6 +34,18 @@ class WrongAnswerNotebookController(
             teacherUserId = currentUserId(authentication),
             studentId = studentId,
             request = request,
+        )
+
+    @GetMapping("/students/{studentId}/wrong-answer-notebook-sources")
+    fun getSources(
+        authentication: Authentication,
+        @PathVariable studentId: UUID,
+        @RequestParam subjectId: UUID,
+    ): WrongAnswerNotebookSourcesResponse =
+        wrongAnswerNotebookService.getSources(
+            teacherUserId = currentUserId(authentication),
+            studentId = studentId,
+            subjectId = subjectId,
         )
 
     @PostMapping("/wrong-answer-notebooks/{wrongAnswerNotebookId}/publish")

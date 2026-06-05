@@ -27,6 +27,9 @@ import com.tutorkim.backend.student.repository.TeacherStudentSubjectRepository
 import com.tutorkim.backend.wronganswer.dto.CreateWrongAnswerNotebookRequest
 import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookListResponse
 import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookResponse
+import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookSourceItemResponse
+import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookSourceType
+import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookSourcesResponse
 import com.tutorkim.backend.wronganswer.entity.WrongAnswerNotebook
 import com.tutorkim.backend.wronganswer.entity.WrongAnswerNotebookProblem
 import com.tutorkim.backend.wronganswer.entity.WrongAnswerNotebookStatus
@@ -53,6 +56,31 @@ class WrongAnswerNotebookService(
     private val wrongAnswerNotebookRepository: WrongAnswerNotebookRepository,
     private val wrongAnswerNotebookProblemRepository: WrongAnswerNotebookProblemRepository,
 ) {
+    @Transactional(readOnly = true)
+    fun getSources(
+        teacherUserId: UUID,
+        studentId: UUID,
+        subjectId: UUID,
+    ): WrongAnswerNotebookSourcesResponse {
+        val teacherId = findTeacherId(teacherUserId)
+        val relationship = findActiveRelationshipReadOnly(teacherUserId, studentId)
+        if (!teacherStudentSubjectRepository.existsByTeacherStudent_IdAndSubject_Id(relationship.id!!, subjectId)) {
+            throw ApiException(ErrorCode.NOT_FOUND, "학생 과목을 찾을 수 없습니다.")
+        }
+        return WrongAnswerNotebookSourcesResponse(
+            previousNotebooks = findPreviousNotebookSources(
+                teacherId = teacherId,
+                relationship = relationship,
+                subjectId = subjectId,
+            ),
+            assignments = findAssignmentSources(
+                teacherId = teacherId,
+                relationship = relationship,
+                subjectId = subjectId,
+            ),
+        )
+    }
+
     @Transactional
     fun createDraft(
         teacherUserId: UUID,
@@ -258,6 +286,194 @@ class WrongAnswerNotebookService(
         }
     }
 
+    private fun findAssignmentSources(
+        teacherId: UUID,
+        relationship: TeacherStudent,
+        subjectId: UUID,
+    ): List<WrongAnswerNotebookSourceItemResponse> {
+        val relationshipId = relationship.id!!
+        val assignments = assignmentRepository.findByTeacherStudentIdAndSubjectIdAndAssignmentTypeInAndStatusInOrderByCreatedAtDesc(
+            teacherStudentId = relationshipId,
+            subjectId = subjectId,
+            assignmentTypes = WRONG_ANSWER_SOURCE_ASSIGNMENT_TYPES,
+            statuses = WRONG_ANSWER_SOURCE_ASSIGNMENT_STATUSES,
+        )
+        if (assignments.isEmpty()) {
+            return emptyList()
+        }
+        val assignmentIds = assignments.map { it.id!! }
+        val assignmentsById = assignments.associateBy { it.id!! }
+        val assignmentOrder = assignmentIds.withIndex().associate { it.value to it.index }
+        val assignmentProblems = assignmentProblemRepository.findByAssignmentIdIn(assignmentIds)
+            .sortedWith(
+                compareBy<AssignmentProblem> { assignmentOrder[it.assignmentId] ?: Int.MAX_VALUE }
+                    .thenBy { it.sortOrder },
+            )
+        if (assignmentProblems.isEmpty()) {
+            return emptyList()
+        }
+        val submissionsByAssignmentId = assignmentSubmissionRepository.findByAssignmentIdIn(assignmentIds)
+            .filter { it.teacherStudentId == relationshipId && it.status in SUBMITTED_SOURCE_STATUSES }
+            .associateBy { it.assignmentId }
+        if (submissionsByAssignmentId.isEmpty()) {
+            return emptyList()
+        }
+        val problemIds = assignmentProblems.map { it.problemId }.toSet()
+        val answersBySubmissionAndProblemId = submissionAnswerRepository.findBySubmissionIdInAndProblemIdIn(
+            submissionIds = submissionsByAssignmentId.values.map { it.id!! },
+            problemIds = problemIds,
+        ).associateBy { it.submissionId to it.problemId }
+        val problemsById = findActiveProblemsById(
+            teacherId = teacherId,
+            subjectId = subjectId,
+            problemIds = problemIds,
+        )
+        data class AssignmentSourceCandidate(
+            val assignmentProblem: AssignmentProblem,
+            val problem: Problem,
+            val submission: AssignmentSubmission,
+            val answer: SubmissionAnswer,
+            val assignmentOrder: Int,
+        )
+
+        val sourceCandidates = assignmentProblems.mapNotNull { assignmentProblem ->
+            val problem = problemsById[assignmentProblem.problemId] ?: return@mapNotNull null
+            val submission = submissionsByAssignmentId[assignmentProblem.assignmentId] ?: return@mapNotNull null
+            val answer = answersBySubmissionAndProblemId[submission.id!! to problem.id!!] ?: return@mapNotNull null
+            AssignmentSourceCandidate(
+                assignmentProblem = assignmentProblem,
+                problem = problem,
+                submission = submission,
+                answer = answer,
+                assignmentOrder = assignmentOrder[assignmentProblem.assignmentId] ?: Int.MAX_VALUE,
+            )
+        }.sortedWith(
+            compareByDescending<AssignmentSourceCandidate> {
+                it.submission.submittedAt ?: assignmentsById[it.assignmentProblem.assignmentId]?.createdAt ?: Instant.EPOCH
+            }.thenBy { it.assignmentOrder }
+                .thenBy { it.assignmentProblem.sortOrder },
+        )
+
+        val seenProblemIds = mutableSetOf<UUID>()
+        return sourceCandidates.mapNotNull { candidate ->
+            val problemId = candidate.problem.id!!
+            if (!seenProblemIds.add(problemId)) {
+                return@mapNotNull null
+            }
+            if (candidate.answer.attemptStatus !in WRONG_ANSWER_SOURCE_STATUSES) {
+                return@mapNotNull null
+            }
+            WrongAnswerNotebookSourceItemResponse(
+                uniqueProblemId = problemId.toString(),
+                assignmentProblemId = candidate.assignmentProblem.id!!,
+                sourceType = WrongAnswerNotebookSourceType.ASSIGNMENT,
+                attemptStatus = candidate.answer.attemptStatus,
+                retryCount = candidate.answer.retryCount,
+                selected = true,
+            )
+        }
+    }
+
+    private fun findPreviousNotebookSources(
+        teacherId: UUID,
+        relationship: TeacherStudent,
+        subjectId: UUID,
+    ): List<WrongAnswerNotebookSourceItemResponse> {
+        val notebooks = wrongAnswerNotebookRepository.findByTeacherStudentIdAndSubjectIdAndStatusOrderByPublishedAtDescCreatedAtDesc(
+            teacherStudentId = relationship.id!!,
+            subjectId = subjectId,
+            status = WrongAnswerNotebookStatus.PUBLISHED,
+        )
+        if (notebooks.isEmpty()) {
+            return emptyList()
+        }
+        val notebookIds = notebooks.map { it.id!! }
+        val notebookById = notebooks.associateBy { it.id!! }
+        val notebookProblemsByNotebookId = wrongAnswerNotebookProblemRepository.findByNotebookIdInOrderBySortOrderAsc(notebookIds)
+            .groupBy { it.notebookId }
+        val notebookProblems = notebooks.flatMap { notebook ->
+            notebookProblemsByNotebookId[notebook.id!!].orEmpty().sortedBy { it.sortOrder }
+        }
+        if (notebookProblems.isEmpty()) {
+            return emptyList()
+        }
+        val problemsById = findActiveProblemsById(
+            teacherId = teacherId,
+            subjectId = subjectId,
+            problemIds = notebookProblems.map { it.problemId }.toSet(),
+        )
+        val reviewAssignmentIds = notebooks.mapNotNull { it.assignmentId }
+        val reviewAssignmentProblemsByAssignmentAndProblemId = if (reviewAssignmentIds.isEmpty()) {
+            emptyMap()
+        } else {
+            assignmentProblemRepository.findByAssignmentIdIn(reviewAssignmentIds)
+                .associateBy { it.assignmentId to it.problemId }
+        }
+        val reviewSubmissionsByAssignmentId = if (reviewAssignmentIds.isEmpty()) {
+            emptyMap()
+        } else {
+            assignmentSubmissionRepository.findByAssignmentIdIn(reviewAssignmentIds)
+                .filter { it.teacherStudentId == relationship.id!! }
+                .associateBy { it.assignmentId }
+        }
+        val reviewSubmissionIds = reviewSubmissionsByAssignmentId.values.map { it.id!! }
+        val reviewAnswersBySubmissionAndProblemId = if (reviewSubmissionIds.isEmpty()) {
+            emptyMap()
+        } else {
+            submissionAnswerRepository.findBySubmissionIdInAndProblemIdIn(
+                submissionIds = reviewSubmissionIds,
+                problemIds = problemsById.keys,
+            ).associateBy { it.submissionId to it.problemId }
+        }
+
+        val seenProblemIds = mutableSetOf<UUID>()
+        return notebookProblems.mapNotNull { notebookProblem ->
+            val notebook = notebookById[notebookProblem.notebookId] ?: return@mapNotNull null
+            val problem = problemsById[notebookProblem.problemId] ?: return@mapNotNull null
+            if (!seenProblemIds.add(problem.id!!)) {
+                return@mapNotNull null
+            }
+            val reviewAnswer = notebook.assignmentId?.let { assignmentId ->
+                val reviewSubmission = reviewSubmissionsByAssignmentId[assignmentId]
+                val reviewAssignmentProblem = reviewAssignmentProblemsByAssignmentAndProblemId[assignmentId to problem.id!!]
+                if (reviewSubmission == null || reviewAssignmentProblem == null) {
+                    null
+                } else {
+                    reviewAnswersBySubmissionAndProblemId[reviewSubmission.id!! to problem.id!!]
+                }
+            }
+            if (reviewAnswer?.attemptStatus == ProblemAttemptStatus.CORRECT_FIRST) {
+                return@mapNotNull null
+            }
+            WrongAnswerNotebookSourceItemResponse(
+                uniqueProblemId = problem.id!!.toString(),
+                assignmentProblemId = notebookProblem.sourceAssignmentProblemId,
+                sourceType = WrongAnswerNotebookSourceType.PREVIOUS_NOTEBOOK,
+                attemptStatus = reviewAnswer?.attemptStatus ?: ProblemAttemptStatus.PENDING,
+                retryCount = reviewAnswer?.retryCount ?: 0,
+                selected = true,
+            )
+        }
+    }
+
+    private fun findActiveProblemsById(
+        teacherId: UUID,
+        subjectId: UUID,
+        problemIds: Collection<UUID>,
+    ): Map<UUID, Problem> {
+        if (problemIds.isEmpty()) {
+            return emptyMap()
+        }
+        return problemRepository.findAllById(problemIds.toSet())
+            .filter {
+                it.ownerTeacherId == teacherId &&
+                    it.subjectId == subjectId &&
+                    it.archivedAt == null &&
+                    it.deletedAt == null
+            }
+            .associateBy { it.id!! }
+    }
+
     private fun resolveSourceProblems(
         teacherId: UUID,
         relationship: TeacherStudent,
@@ -404,6 +620,14 @@ class WrongAnswerNotebookService(
             ProblemAttemptStatus.WRONG_FIRST,
             ProblemAttemptStatus.CORRECT_RETRY,
             ProblemAttemptStatus.UNKNOWN,
+        )
+        private val WRONG_ANSWER_SOURCE_ASSIGNMENT_TYPES = setOf(
+            AssignmentType.HOMEWORK,
+            AssignmentType.TEST,
+        )
+        private val WRONG_ANSWER_SOURCE_ASSIGNMENT_STATUSES = setOf(
+            AssignmentStatus.PUBLISHED,
+            AssignmentStatus.CLOSED,
         )
         private val SUBMITTED_SOURCE_STATUSES = setOf(
             SubmissionStatus.SUBMITTED,
