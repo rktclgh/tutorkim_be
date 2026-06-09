@@ -5,7 +5,9 @@ import com.tutorkim.backend.assignment.entity.ProblemAttemptStatus
 import com.tutorkim.backend.assignment.entity.ResultVisibility
 import com.tutorkim.backend.assignment.entity.SubmissionAnswer
 import com.tutorkim.backend.assignment.entity.SubmissionSolutionFile
+import com.tutorkim.backend.assignment.entity.SubmissionStatus
 import com.tutorkim.backend.assignment.entity.AssignmentStatus
+import com.tutorkim.backend.assignment.entity.GradingStatus
 import com.tutorkim.backend.assignment.repository.AssignmentProblemRepository
 import com.tutorkim.backend.assignment.repository.AssignmentRepository
 import com.tutorkim.backend.assignment.repository.SubmissionAnswerRepository
@@ -720,6 +722,161 @@ class AssignmentManagementControllerIntegrationTest @Autowired constructor(
             jsonPath("$.error.code") { value("CONFLICT") }
             jsonPath("$.error.message") { value("풀이 가능한 과제가 아닙니다.") }
         }
+    }
+
+    @Test
+    fun `teacher manually grades submitted answer and recalculates submission score`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val otherTeacher = createFixture()
+        createRelationship(otherTeacher)
+        val choiceProblem = createProblem(
+            teacherId = fixture.teacherProfile.id!!,
+            subjectId = fixture.math.id!!,
+            number = 1,
+            answerType = ProblemAnswerType.SINGLE_CHOICE,
+            correctChoiceNumbers = listOf(1),
+        )
+        val numericProblem = createProblem(
+            teacherId = fixture.teacherProfile.id!!,
+            subjectId = fixture.math.id!!,
+            number = 2,
+            answerType = ProblemAnswerType.NUMERIC,
+            correctNumericAnswer = BigDecimal("42"),
+        )
+        val assignmentId = createDraftThroughApi(fixture, listOf(choiceProblem.id!!, numericProblem.id!!))
+        mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+        val assignmentProblems = assignmentProblemRepository.findByAssignmentIdOrderBySortOrderAsc(assignmentId)
+        mockMvc.post("/api/v1/student/assignments/$assignmentId/submissions") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "answers" to listOf(
+                        mapOf(
+                            "problemId" to choiceProblem.id!!.toString(),
+                            "selectedChoiceNumbers" to listOf(1),
+                        ),
+                        mapOf(
+                            "problemId" to numericProblem.id!!.toString(),
+                            "numericAnswer" to BigDecimal("41"),
+                        ),
+                    ),
+                ),
+            )
+        }.andExpect {
+            status { isOk() }
+        }
+        val submission = assignmentSubmissionRepository.findAll().single { it.assignmentId == assignmentId }
+        val numericAnswer = submissionAnswerRepository.findAll().single {
+            it.submissionId == submission.id!! && it.problemId == numericProblem.id!!
+        }
+
+        mockMvc.patch("/api/v1/submissions/${submission.id}/answers/${numericAnswer.id}/grading") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(mapOf("isCorrect" to true, "reason" to "계산식 인정"))
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.code") { value("FORBIDDEN") }
+        }
+
+        mockMvc.patch("/api/v1/submissions/${submission.id}/answers/${numericAnswer.id}/grading") {
+            with(user(otherTeacher.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(mapOf("isCorrect" to true, "reason" to "계산식 인정"))
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+        }
+
+        mockMvc.patch("/api/v1/submissions/${submission.id}/answers/${numericAnswer.id}/grading") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(mapOf("isCorrect" to true, "reason" to "계산식 인정"))
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.id") { value(assignmentId.toString()) }
+            jsonPath("$.data.problems.length()") { value(2) }
+            jsonPath("$.data.problems[1].attemptStatus") { value("CORRECT_FIRST") }
+        }
+
+        val savedSubmission = assignmentSubmissionRepository.findById(submission.id!!).orElseThrow()
+        assertThat(savedSubmission.gradingStatus).isEqualTo(GradingStatus.MANUALLY_ADJUSTED)
+        assertThat(savedSubmission.score).isEqualByComparingTo(BigDecimal("2.00"))
+        assertThat(savedSubmission.totalPoints).isEqualByComparingTo(BigDecimal("2.00"))
+        assertThat(savedSubmission.gradedAt).isNotNull()
+        val savedAnswer = submissionAnswerRepository.findById(numericAnswer.id!!).orElseThrow()
+        assertThat(savedAnswer.manualIsCorrect).isTrue()
+        assertThat(savedAnswer.manualGradingReason).isEqualTo("계산식 인정")
+        assertThat(savedAnswer.manuallyGradedBy).isEqualTo(fixture.teacherUser.id!!)
+        assertThat(savedAnswer.isCorrect).isTrue()
+        assertThat(savedAnswer.attemptStatus).isEqualTo(ProblemAttemptStatus.CORRECT_FIRST)
+        assertThat(assignmentProblems).hasSize(2)
+    }
+
+    @Test
+    fun `teacher cannot manually grade partial submission answers`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val problem = createProblem(
+            teacherId = fixture.teacherProfile.id!!,
+            subjectId = fixture.math.id!!,
+            number = 1,
+            answerType = ProblemAnswerType.SINGLE_CHOICE,
+            correctChoiceNumbers = listOf(1),
+        )
+        val assignmentId = createDraftThroughApi(fixture, listOf(problem.id!!))
+        mockMvc.post("/api/v1/assignments/$assignmentId/publish") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+        }.andExpect {
+            status { isOk() }
+        }
+        val assignmentProblemId = assignmentProblemRepository.findByAssignmentIdOrderBySortOrderAsc(assignmentId).single().id!!
+        mockMvc.patch("/api/v1/student/assignments/$assignmentId/answers/$assignmentProblemId") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "selectedChoiceNumbers" to listOf(2),
+                    "unknown" to false,
+                ),
+            )
+        }.andExpect {
+            status { isOk() }
+        }
+        val submission = assignmentSubmissionRepository.findAll().single { it.assignmentId == assignmentId }
+        val answer = submissionAnswerRepository.findAll().single { it.submissionId == submission.id!! }
+        assertThat(submission.status).isEqualTo(SubmissionStatus.PARTIAL)
+
+        mockMvc.patch("/api/v1/submissions/${submission.id}/answers/${answer.id}/grading") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(mapOf("isCorrect" to true, "reason" to "제출 전 인정 금지"))
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.error.code") { value("CONFLICT") }
+        }
+
+        val savedSubmission = assignmentSubmissionRepository.findById(submission.id!!).orElseThrow()
+        val savedAnswer = submissionAnswerRepository.findById(answer.id!!).orElseThrow()
+        assertThat(savedSubmission.gradingStatus).isEqualTo(GradingStatus.NOT_GRADED)
+        assertThat(savedSubmission.score).isNull()
+        assertThat(savedSubmission.gradedAt).isNull()
+        assertThat(savedAnswer.manualIsCorrect).isNull()
+        assertThat(savedAnswer.manuallyGradedAt).isNull()
     }
 
     @Test

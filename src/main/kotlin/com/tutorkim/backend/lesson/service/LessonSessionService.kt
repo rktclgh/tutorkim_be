@@ -19,6 +19,8 @@ class LessonSessionNotFoundException(message: String) : RuntimeException(message
 
 class LessonCancelledException(message: String) : RuntimeException(message)
 
+class LessonNotStartedException(message: String) : RuntimeException(message)
+
 class LessonCurriculumNodeNotFoundException(message: String) : RuntimeException(message)
 
 data class CompleteLessonSessionCommand(
@@ -79,6 +81,9 @@ class LessonSessionService(
         )
 
         val now = Instant.now(clock)
+        if (session.status != LessonStatus.COMPLETED && now.isBefore(session.scheduledStartAt)) {
+            throw LessonNotStartedException("Lesson session cannot be completed before scheduled start.")
+        }
         session.currentCurriculumNodeId = command.currentCurriculumNodeId
         session.previousProgressSummary = command.previousProgress
         session.currentProgress = command.currentProgress

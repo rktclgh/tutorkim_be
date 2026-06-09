@@ -9,9 +9,8 @@ import com.tutorkim.backend.assignment.dto.SaveStudentAnswerRequest
 import com.tutorkim.backend.assignment.dto.SubmitStudentAnswersRequest
 import com.tutorkim.backend.assignment.service.AssignmentQuestionService
 import com.tutorkim.backend.assignment.service.StudentAssignmentService
-import com.tutorkim.backend.common.exception.ApiException
-import com.tutorkim.backend.common.exception.ErrorCode
 import com.tutorkim.backend.common.web.API_PREFIX
+import com.tutorkim.backend.common.web.CurrentUser
 import jakarta.validation.Valid
 import org.springframework.security.core.Authentication
 import org.springframework.web.bind.annotation.GetMapping
@@ -29,6 +28,7 @@ import java.util.UUID
 class StudentAssignmentController(
     private val studentAssignmentService: StudentAssignmentService,
     private val assignmentQuestionService: AssignmentQuestionService,
+    private val currentUser: CurrentUser,
 ) {
     @GetMapping("/student/assignments")
     fun listMyAssignments(
@@ -36,7 +36,7 @@ class StudentAssignmentController(
         @RequestParam(defaultValue = "false") includeExpired: Boolean,
     ): List<StudentAssignmentSummaryResponse> =
         studentAssignmentService.listMyAssignments(
-            studentUserId = currentUserId(authentication),
+            studentUserId = currentUser.id(authentication),
             includeExpired = includeExpired,
         )
 
@@ -46,7 +46,7 @@ class StudentAssignmentController(
         @PathVariable assignmentId: UUID,
     ): StudentAssignmentDetailResponse =
         studentAssignmentService.getMyAssignmentDetail(
-            studentUserId = currentUserId(authentication),
+            studentUserId = currentUser.id(authentication),
             assignmentId = assignmentId,
         )
 
@@ -58,7 +58,7 @@ class StudentAssignmentController(
         @Valid @RequestBody request: SaveStudentAnswerRequest,
     ): StudentAssignmentDetailResponse =
         studentAssignmentService.saveMyAnswer(
-            studentUserId = currentUserId(authentication),
+            studentUserId = currentUser.id(authentication),
             assignmentId = assignmentId,
             assignmentProblemId = assignmentProblemId,
             request = request,
@@ -72,7 +72,7 @@ class StudentAssignmentController(
         @Valid @RequestBody request: AttachStudentSolutionFileRequest,
     ): StudentAssignmentDetailResponse =
         studentAssignmentService.attachMySolutionFile(
-            studentUserId = currentUserId(authentication),
+            studentUserId = currentUser.id(authentication),
             assignmentId = assignmentId,
             assignmentProblemId = assignmentProblemId,
             request = request,
@@ -84,7 +84,7 @@ class StudentAssignmentController(
         @PathVariable assignmentId: UUID,
     ): StudentAssignmentDetailResponse =
         studentAssignmentService.submitMyAssignment(
-            studentUserId = currentUserId(authentication),
+            studentUserId = currentUser.id(authentication),
             assignmentId = assignmentId,
         )
 
@@ -95,7 +95,7 @@ class StudentAssignmentController(
         @Valid @RequestBody request: SubmitStudentAnswersRequest,
     ): StudentAssignmentDetailResponse =
         studentAssignmentService.submitMyAnswers(
-            studentUserId = currentUserId(authentication),
+            studentUserId = currentUser.id(authentication),
             assignmentId = assignmentId,
             request = request,
         )
@@ -108,16 +108,9 @@ class StudentAssignmentController(
         @Valid @RequestBody request: CreateAssignmentQuestionRequest,
     ): AssignmentQuestionResponse =
         assignmentQuestionService.createStudentQuestion(
-            studentUserId = currentUserId(authentication),
+            studentUserId = currentUser.id(authentication),
             assignmentId = assignmentId,
             assignmentProblemId = assignmentProblemId,
             request = request,
         )
-
-    private fun currentUserId(authentication: Authentication): UUID =
-        try {
-            UUID.fromString(authentication.name)
-        } catch (exception: IllegalArgumentException) {
-            throw ApiException(ErrorCode.UNAUTHORIZED, cause = exception)
-        }
 }

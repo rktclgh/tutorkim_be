@@ -3,6 +3,7 @@ package com.tutorkim.backend.problem.controller
 import com.tutorkim.backend.common.exception.ApiException
 import com.tutorkim.backend.common.exception.ErrorCode
 import com.tutorkim.backend.common.web.API_PREFIX
+import com.tutorkim.backend.common.web.CurrentUser
 import com.tutorkim.backend.problem.dto.AttachTeacherSolutionRequest
 import com.tutorkim.backend.problem.dto.ProblemDetailResponse
 import com.tutorkim.backend.problem.dto.ProblemSummaryResponse
@@ -28,6 +29,7 @@ import java.util.UUID
 @RequestMapping(API_PREFIX)
 class ProblemBankController(
     private val problemBankService: ProblemBankService,
+    private val currentUser: CurrentUser,
 ) {
     @GetMapping("/problems")
     fun listProblems(
@@ -42,7 +44,7 @@ class ProblemBankController(
         @RequestParam(defaultValue = "50") limit: Int,
     ): List<ProblemSummaryResponse> =
         problemBankService.listProblems(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             subjectId = subjectId,
             depth1Id = depth1Id,
             depth2Id = depth2Id,
@@ -59,7 +61,7 @@ class ProblemBankController(
         @PathVariable problemId: UUID,
     ): ProblemDetailResponse =
         problemBankService.getProblem(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             problemId = problemId,
         )
 
@@ -70,7 +72,7 @@ class ProblemBankController(
         @Valid @RequestBody request: UpdateProblemRequest,
     ): ProblemDetailResponse =
         problemBankService.updateProblem(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             problemId = problemId,
             request = request,
         )
@@ -82,7 +84,7 @@ class ProblemBankController(
         @Valid @RequestBody request: AttachTeacherSolutionRequest,
     ): ProblemDetailResponse =
         problemBankService.attachTeacherSolution(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             problemId = problemId,
             request = request,
         )
@@ -94,7 +96,7 @@ class ProblemBankController(
         @PathVariable explanationId: UUID,
     ): ProblemDetailResponse =
         problemBankService.deleteTeacherSolution(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             problemId = problemId,
             explanationId = explanationId,
         )
@@ -106,17 +108,10 @@ class ProblemBankController(
         @PathVariable problemId: UUID,
     ) {
         problemBankService.archiveProblem(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             problemId = problemId,
         )
     }
-
-    private fun currentUserId(authentication: Authentication): UUID =
-        try {
-            UUID.fromString(authentication.name)
-        } catch (exception: IllegalArgumentException) {
-            throw ApiException(ErrorCode.UNAUTHORIZED, cause = exception)
-        }
 
     private fun validatedLimit(limit: Int): Int {
         if (limit !in 1..200) {

@@ -30,12 +30,26 @@ class StudentManagementService(
         teacherUserId: UUID,
         subjectId: UUID?,
         active: Boolean,
-    ): List<StudentRelationshipView> =
-        teacherStudentRepository.findRosterByTeacherUserId(
+    ): List<StudentRelationshipView> {
+        val relationships = teacherStudentRepository.findRosterByTeacherUserId(
             teacherUserId = teacherUserId,
             subjectId = subjectId,
             active = active,
-        ).map(::toView)
+        )
+        if (relationships.isEmpty()) {
+            return emptyList()
+        }
+        val subjectsByRelationshipId = teacherStudentSubjectRepository.findByTeacherStudent_IdInWithSubject(
+            relationships.map { it.id!! },
+        ).groupBy { it.teacherStudent.id!! }
+
+        return relationships.map { relationship ->
+            toView(
+                relationship = relationship,
+                subjects = subjectsByRelationshipId[relationship.id!!].orEmpty(),
+            )
+        }
+    }
 
     @Transactional
     fun updateSubjectsForTeacherUser(
@@ -95,15 +109,24 @@ class StudentManagementService(
         return toView(relationship)
     }
 
-    private fun toView(relationship: TeacherStudent): StudentRelationshipView {
+    private fun toView(relationship: TeacherStudent): StudentRelationshipView =
+        toView(
+            relationship = relationship,
+            subjects = teacherStudentSubjectRepository.findByTeacherStudent_Id(relationship.id!!),
+        )
+
+    private fun toView(
+        relationship: TeacherStudent,
+        subjects: List<TeacherStudentSubject>,
+    ): StudentRelationshipView {
         Hibernate.initialize(relationship.student)
         Hibernate.initialize(relationship.defaultSubject)
-        val subjects = teacherStudentSubjectRepository.findByTeacherStudent_Id(relationship.id!!)
+        val sortedSubjects = subjects
             .sortedWith(
                 compareByDescending<TeacherStudentSubject> { it.primary }
                     .thenBy { it.subject.name },
             )
-        subjects.forEach { Hibernate.initialize(it.subject) }
-        return StudentRelationshipView(relationship = relationship, subjects = subjects)
+        sortedSubjects.forEach { Hibernate.initialize(it.subject) }
+        return StudentRelationshipView(relationship = relationship, subjects = sortedSubjects)
     }
 }

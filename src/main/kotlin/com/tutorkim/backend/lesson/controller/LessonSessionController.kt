@@ -3,11 +3,13 @@ package com.tutorkim.backend.lesson.controller
 import com.tutorkim.backend.common.exception.ApiException
 import com.tutorkim.backend.common.exception.ErrorCode
 import com.tutorkim.backend.common.web.API_PREFIX
+import com.tutorkim.backend.common.web.CurrentUser
 import com.tutorkim.backend.lesson.dto.CompleteLessonSessionRequest
 import com.tutorkim.backend.lesson.dto.LessonSessionDetailResponse
 import com.tutorkim.backend.lesson.service.CompleteLessonSessionCommand
 import com.tutorkim.backend.lesson.service.LessonCancelledException
 import com.tutorkim.backend.lesson.service.LessonCurriculumNodeNotFoundException
+import com.tutorkim.backend.lesson.service.LessonNotStartedException
 import com.tutorkim.backend.lesson.service.LessonSessionNotFoundException
 import com.tutorkim.backend.lesson.service.LessonSessionService
 import jakarta.validation.Valid
@@ -24,6 +26,7 @@ import java.util.UUID
 @RequestMapping(API_PREFIX)
 class LessonSessionController(
     private val lessonSessionService: LessonSessionService,
+    private val currentUser: CurrentUser,
 ) {
     @GetMapping("lesson-sessions/{lessonSessionId}")
     fun getLessonDetail(
@@ -32,7 +35,7 @@ class LessonSessionController(
     ): LessonSessionDetailResponse {
         val view = try {
             lessonSessionService.getLessonDetail(
-                teacherUserId = currentUserId(authentication),
+                teacherUserId = currentUser.id(authentication),
                 lessonSessionId = lessonSessionId,
             )
         } catch (exception: LessonSessionNotFoundException) {
@@ -50,7 +53,7 @@ class LessonSessionController(
     ): LessonSessionDetailResponse {
         val view = try {
             lessonSessionService.completeLesson(
-                teacherUserId = currentUserId(authentication),
+                teacherUserId = currentUser.id(authentication),
                 lessonSessionId = lessonSessionId,
                 command = CompleteLessonSessionCommand(
                     currentCurriculumNodeId = request.currentCurriculumNodeId,
@@ -69,15 +72,11 @@ class LessonSessionController(
             throw ApiException(ErrorCode.NOT_FOUND, "커리큘럼 노드를 찾을 수 없습니다.", cause = exception)
         } catch (exception: LessonCancelledException) {
             throw ApiException(ErrorCode.CONFLICT, "취소된 수업은 완료 처리할 수 없습니다.", cause = exception)
+        } catch (exception: LessonNotStartedException) {
+            throw ApiException(ErrorCode.CONFLICT, "수업 시작 전에는 완료 처리할 수 없습니다.", cause = exception)
         }
 
         return LessonSessionDetailResponse.from(view.session, view.studentId)
     }
 
-    private fun currentUserId(authentication: Authentication): UUID =
-        try {
-            UUID.fromString(authentication.name)
-        } catch (exception: IllegalArgumentException) {
-            throw ApiException(ErrorCode.UNAUTHORIZED, cause = exception)
-        }
 }

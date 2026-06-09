@@ -3,6 +3,7 @@ package com.tutorkim.backend.student.controller
 import com.tutorkim.backend.common.exception.ApiException
 import com.tutorkim.backend.common.exception.ErrorCode
 import com.tutorkim.backend.common.web.API_PREFIX
+import com.tutorkim.backend.common.web.CurrentUser
 import com.tutorkim.backend.student.dto.StudentRelationshipDetailResponse
 import com.tutorkim.backend.student.dto.UpdateStudentSubjectsRequest
 import com.tutorkim.backend.student.service.PrimarySubjectNotIncludedException
@@ -24,6 +25,7 @@ import java.util.UUID
 @RequestMapping(API_PREFIX)
 class StudentManagementController(
     private val studentManagementService: StudentManagementService,
+    private val currentUser: CurrentUser,
 ) {
     @GetMapping("students")
     fun listStudents(
@@ -32,7 +34,7 @@ class StudentManagementController(
         @RequestParam(defaultValue = "true") active: Boolean,
     ): List<StudentRelationshipDetailResponse> =
         studentManagementService.listStudentsForTeacherUser(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             subjectId = subjectId,
             active = active,
         ).map(StudentRelationshipDetailResponse::from)
@@ -45,7 +47,7 @@ class StudentManagementController(
     ): StudentRelationshipDetailResponse {
         val view = try {
             studentManagementService.updateSubjectsForTeacherUser(
-                teacherUserId = currentUserId(authentication),
+                teacherUserId = currentUser.id(authentication),
                 studentId = studentId,
                 subjectIds = request.subjectIds,
                 primarySubjectId = request.primarySubjectId,
@@ -60,11 +62,4 @@ class StudentManagementController(
 
         return StudentRelationshipDetailResponse.from(view)
     }
-
-    private fun currentUserId(authentication: Authentication): UUID =
-        try {
-            UUID.fromString(authentication.name)
-        } catch (exception: IllegalArgumentException) {
-            throw ApiException(ErrorCode.UNAUTHORIZED, cause = exception)
-        }
 }

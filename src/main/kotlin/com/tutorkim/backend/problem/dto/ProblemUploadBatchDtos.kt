@@ -46,6 +46,7 @@ data class StartProblemParsingRequest(
     val pipelineVersion: String,
 
     @field:NotEmpty
+    @field:Size(max = 10)
     val deterministicStages: List<IngestionStageType>,
 
     @field:Valid

@@ -191,6 +191,12 @@ class ProblemUploadBatchService(
         batch: ProblemUploadBatch,
         request: StartProblemParsingRequest,
     ) {
+        if (request.deterministicStages.distinct().size != request.deterministicStages.size) {
+            throw ApiException(ErrorCode.VALIDATION_ERROR, "파싱 단계는 중복될 수 없습니다.")
+        }
+        if (request.deterministicStages.size > IngestionStageType.entries.size) {
+            throw ApiException(ErrorCode.VALIDATION_ERROR, "파싱 단계가 너무 많습니다.")
+        }
         if (request.parseMode != SEMANTIC_FIRST_PARSE_MODE) {
             throw ApiException(ErrorCode.VALIDATION_ERROR, "지원하지 않는 파싱 모드입니다.")
         }

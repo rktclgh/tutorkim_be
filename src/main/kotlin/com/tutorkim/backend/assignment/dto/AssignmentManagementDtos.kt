@@ -39,6 +39,14 @@ data class CreateAssignmentRequest(
     val problemIds: List<UUID>,
 )
 
+data class ManualGradeSubmissionAnswerRequest(
+    @field:NotNull
+    val isCorrect: Boolean?,
+
+    @field:Size(max = 1000)
+    val reason: String? = null,
+)
+
 data class AssignmentStudentResponse(
     val id: UUID,
     val name: String,

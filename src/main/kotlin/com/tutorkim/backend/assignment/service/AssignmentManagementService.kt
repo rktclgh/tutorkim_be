@@ -4,12 +4,15 @@ import com.tutorkim.backend.assignment.dto.AssignmentDetailResponse
 import com.tutorkim.backend.assignment.dto.AssignmentProblemDetailResponse
 import com.tutorkim.backend.assignment.dto.AssignmentSummaryResponse
 import com.tutorkim.backend.assignment.dto.CreateAssignmentRequest
+import com.tutorkim.backend.assignment.dto.ManualGradeSubmissionAnswerRequest
 import com.tutorkim.backend.assignment.entity.Assignment
 import com.tutorkim.backend.assignment.entity.AssignmentProblem
 import com.tutorkim.backend.assignment.entity.AssignmentStatus
 import com.tutorkim.backend.assignment.entity.AssignmentSubmission
 import com.tutorkim.backend.assignment.entity.AssignmentTarget
 import com.tutorkim.backend.assignment.entity.AssignmentType
+import com.tutorkim.backend.assignment.entity.GradingStatus
+import com.tutorkim.backend.assignment.entity.ProblemAttemptStatus
 import com.tutorkim.backend.assignment.entity.ResultVisibility
 import com.tutorkim.backend.assignment.entity.SubmissionStatus
 import com.tutorkim.backend.assignment.repository.AssignmentProblemRepository
@@ -40,6 +43,11 @@ import org.springframework.transaction.support.TransactionTemplate
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
+
+private val MANUAL_GRADING_ALLOWED_SUBMISSION_STATUSES = setOf(
+    SubmissionStatus.SUBMITTED,
+    SubmissionStatus.LATE_SUBMITTED,
+)
 
 @Service
 class AssignmentManagementService(
@@ -183,6 +191,66 @@ class AssignmentManagementService(
                 assignmentId = assignmentId,
             )
         } ?: throw ApiException(ErrorCode.INTERNAL_SERVER_ERROR, "과제 상세 응답을 생성할 수 없습니다.")
+    }
+
+    @Transactional
+    fun manuallyGradeSubmissionAnswer(
+        teacherUserId: UUID,
+        submissionId: UUID,
+        answerId: UUID,
+        request: ManualGradeSubmissionAnswerRequest,
+    ): AssignmentDetailResponse {
+        val teacherId = findTeacherId(teacherUserId)
+        val submission = assignmentSubmissionRepository.findByIdForUpdate(submissionId)
+            ?: throw ApiException(ErrorCode.NOT_FOUND, "제출을 찾을 수 없습니다.")
+        val assignment = assignmentRepository.findOwnedByTeacherIdForUpdate(submission.assignmentId, teacherId)
+            ?: throw ApiException(ErrorCode.NOT_FOUND, "과제를 찾을 수 없습니다.")
+        if (assignment.teacherStudentId != submission.teacherStudentId) {
+            throw ApiException(ErrorCode.NOT_FOUND, "제출을 찾을 수 없습니다.")
+        }
+        if (submission.status !in MANUAL_GRADING_ALLOWED_SUBMISSION_STATUSES) {
+            throw ApiException(ErrorCode.CONFLICT, "제출 완료된 답안만 수동 채점할 수 있습니다.")
+        }
+        val answer = submissionAnswerRepository.findByIdAndSubmissionIdForUpdate(
+            answerId = answerId,
+            submissionId = submission.id!!,
+        ) ?: throw ApiException(ErrorCode.NOT_FOUND, "제출 답안을 찾을 수 없습니다.")
+        val now = Instant.now()
+        val isCorrect = request.isCorrect!!
+
+        answer.manualIsCorrect = isCorrect
+        answer.manualGradingReason = request.reason?.trim()?.ifBlank { null }
+        answer.manuallyGradedBy = teacherUserId
+        answer.manuallyGradedAt = now
+        answer.isCorrect = isCorrect
+        answer.attemptStatus = when {
+            isCorrect && answer.retryCount > 0 -> ProblemAttemptStatus.CORRECT_RETRY
+            isCorrect -> ProblemAttemptStatus.CORRECT_FIRST
+            else -> ProblemAttemptStatus.WRONG_FIRST
+        }
+        answer.updatedAt = now
+
+        val assignmentProblems = assignmentProblemRepository.findByAssignmentIdOrderBySortOrderAsc(assignment.id!!)
+        val answersByProblemId = submissionAnswerRepository.findBySubmissionIdAndProblemIdIn(
+            submissionId = submission.id!!,
+            problemIds = assignmentProblems.map { it.problemId },
+        ).associateBy { it.problemId }.toMutableMap()
+        answersByProblemId[answer.problemId] = answer
+        val totalPoints = assignmentProblems.fold(BigDecimal.ZERO) { total, problem -> total + problem.points }
+        val score = assignmentProblems.fold(BigDecimal.ZERO) { total, assignmentProblem ->
+            val gradedAnswer = answersByProblemId[assignmentProblem.problemId]
+            if (gradedAnswer?.isCorrect == true) total + assignmentProblem.points else total
+        }
+        submission.gradingStatus = GradingStatus.MANUALLY_ADJUSTED
+        submission.score = score
+        submission.totalPoints = totalPoints
+        submission.gradedAt = now
+        submission.updatedAt = now
+
+        return getDetail(
+            teacherUserId = teacherUserId,
+            assignmentId = assignment.id!!,
+        )
     }
 
     @Transactional(readOnly = true)

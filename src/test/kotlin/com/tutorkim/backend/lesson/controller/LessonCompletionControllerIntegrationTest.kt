@@ -163,6 +163,34 @@ class LessonCompletionControllerIntegrationTest @Autowired constructor(
     }
 
     @Test
+    fun `teacher cannot complete lesson before scheduled start time`() {
+        val fixture = createFixture()
+        val relationship = createRelationship(fixture)
+        val session = createLessonSession(
+            relationship = relationship,
+            subject = fixture.math,
+            scheduledStartAt = Instant.parse("2030-05-18T10:00:00Z"),
+            scheduledEndAt = Instant.parse("2030-05-18T12:00:00Z"),
+        )
+
+        mockMvc.patch("/api/v1/lesson-sessions/${session.id}/complete") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = completeRequestBody()
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.error.code") { value("CONFLICT") }
+            jsonPath("$.error.message") { value("수업 시작 전에는 완료 처리할 수 없습니다.") }
+        }
+
+        val savedSession = lessonSessionRepository.findById(session.id!!).orElseThrow()
+        assertThat(savedSession.status).isEqualTo(LessonStatus.SCHEDULED)
+        assertThat(savedSession.actualStartAt).isNull()
+        assertThat(savedSession.actualEndAt).isNull()
+    }
+
+    @Test
     fun `student role cannot read or complete lesson sessions`() {
         val fixture = createFixture()
         val relationship = createRelationship(fixture)
@@ -366,13 +394,15 @@ class LessonCompletionControllerIntegrationTest @Autowired constructor(
         relationship: TeacherStudent,
         subject: Subject,
         status: LessonStatus = LessonStatus.SCHEDULED,
+        scheduledStartAt: Instant = Instant.parse("2026-05-18T10:00:00Z"),
+        scheduledEndAt: Instant = Instant.parse("2026-05-18T12:00:00Z"),
     ): LessonSession =
         lessonSessionRepository.save(
             LessonSession(
                 teacherStudentId = relationship.id!!,
                 subjectId = subject.id!!,
-                scheduledStartAt = Instant.parse("2026-05-18T10:00:00Z"),
-                scheduledEndAt = Instant.parse("2026-05-18T12:00:00Z"),
+                scheduledStartAt = scheduledStartAt,
+                scheduledEndAt = scheduledEndAt,
                 status = status,
             ),
         )
