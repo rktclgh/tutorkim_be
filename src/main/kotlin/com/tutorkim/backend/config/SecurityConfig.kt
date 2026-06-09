@@ -116,6 +116,11 @@ class SecurityConfig(
 					.hasRole("TEACHER")
 					.requestMatchers(
 						HttpMethod.GET,
+						"/api/v1/students/*/wrong-answers",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
+						HttpMethod.GET,
 						"/api/v1/students/*/wrong-answer-notebooks",
 					)
 					.hasRole("TEACHER")

@@ -240,6 +240,246 @@ class WrongAnswerNotebookControllerIntegrationTest @Autowired constructor(
     }
 
     @Test
+    fun `teacher gets student wrong-answer report filtered by subject curriculum date and unresolved state`() {
+        val fixture = createFixture()
+        val relationship = createRelationship(fixture)
+        val sharedLabels = createLabelFixture(fixture.math.id!!)
+        val unresolvedProblem = createProblem(
+            teacherId = fixture.teacherProfile.id!!,
+            subjectId = fixture.math.id!!,
+            labels = sharedLabels,
+        )
+        val resolvedProblem = createProblem(
+            teacherId = fixture.teacherProfile.id!!,
+            subjectId = fixture.math.id!!,
+            labels = sharedLabels,
+        )
+        createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "범위 밖 숙제",
+            problem = createProblem(fixture.teacherProfile.id!!, fixture.math.id!!, labels = sharedLabels),
+            submittedAt = Instant.parse("2026-04-30T03:00:00Z"),
+        )
+        val unresolvedAssignmentProblem = createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "5월 오답 숙제",
+            problem = unresolvedProblem,
+            attemptStatus = ProblemAttemptStatus.WRONG_FIRST,
+            isCorrect = false,
+            submittedAt = Instant.parse("2026-05-10T03:00:00Z"),
+        )
+        createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "5월 해결 숙제",
+            problem = resolvedProblem,
+            attemptStatus = ProblemAttemptStatus.CORRECT_RETRY,
+            isCorrect = true,
+            submittedAt = Instant.parse("2026-05-11T03:00:00Z"),
+        )
+
+        mockMvc.get("/api/v1/students/${fixture.studentProfile.id}/wrong-answers") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("subjectId", fixture.math.id!!.toString())
+            param("curriculumNodeId", sharedLabels.depth2Id.toString())
+            param("unresolvedOnly", "true")
+            param("from", "2026-05-01")
+            param("to", "2026-05-31")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.studentId") { value(fixture.studentProfile.id!!.toString()) }
+            jsonPath("$.data.subjectId") { value(fixture.math.id!!.toString()) }
+            jsonPath("$.data.totalCount") { value(1) }
+            jsonPath("$.data.unresolvedCount") { value(1) }
+            jsonPath("$.data.items.length()") { value(1) }
+            jsonPath("$.data.items[0].assignmentProblemId") { value(unresolvedAssignmentProblem.id!!.toString()) }
+            jsonPath("$.data.items[0].problemId") { value(unresolvedProblem.id!!.toString()) }
+            jsonPath("$.data.items[0].assignmentTitle") { value("5월 오답 숙제") }
+            jsonPath("$.data.items[0].attemptStatus") { value("WRONG_FIRST") }
+            jsonPath("$.data.items[0].resolved") { value(false) }
+            jsonPath("$.data.items[0].submittedAt") { value("2026-05-10T03:00:00Z") }
+        }
+
+        mockMvc.get("/api/v1/students/${fixture.studentProfile.id}/wrong-answers") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("subjectId", fixture.math.id!!.toString())
+            param("unresolvedOnly", "false")
+            param("from", "2026-05-01")
+            param("to", "2026-05-31")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.totalCount") { value(2) }
+            jsonPath("$.data.unresolvedCount") { value(1) }
+            jsonPath("$.data.items[0].attemptStatus") { value("CORRECT_RETRY") }
+            jsonPath("$.data.items[0].resolved") { value(true) }
+            jsonPath("$.data.items[1].attemptStatus") { value("WRONG_FIRST") }
+            jsonPath("$.data.items[1].resolved") { value(false) }
+        }
+    }
+
+    @Test
+    fun `wrong-answer report does not resurrect older wrong answer when latest submission is correct first outside date range`() {
+        val fixture = createFixture()
+        val relationship = createRelationship(fixture)
+        val sharedProblem = createProblem(fixture.teacherProfile.id!!, fixture.math.id!!)
+        createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "5월 오답 숙제",
+            problem = sharedProblem,
+            attemptStatus = ProblemAttemptStatus.WRONG_FIRST,
+            isCorrect = false,
+            assignmentType = AssignmentType.HOMEWORK,
+            createdAt = Instant.parse("2026-05-10T00:00:00Z"),
+            submittedAt = Instant.parse("2026-05-10T03:00:00Z"),
+        )
+        createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "6월 해결 복습",
+            problem = sharedProblem,
+            attemptStatus = ProblemAttemptStatus.CORRECT_FIRST,
+            isCorrect = true,
+            assignmentType = AssignmentType.REVIEW_SET,
+            createdAt = Instant.parse("2026-06-02T00:00:00Z"),
+            submittedAt = Instant.parse("2026-06-02T03:00:00Z"),
+        )
+
+        mockMvc.get("/api/v1/students/${fixture.studentProfile.id}/wrong-answers") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("subjectId", fixture.math.id!!.toString())
+            param("unresolvedOnly", "false")
+            param("from", "2026-05-01")
+            param("to", "2026-05-31")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.totalCount") { value(0) }
+            jsonPath("$.data.unresolvedCount") { value(0) }
+            jsonPath("$.data.items.length()") { value(0) }
+        }
+    }
+
+    @Test
+    fun `wrong-answer report uses archived submitted assignments as historical latest answer records`() {
+        val fixture = createFixture()
+        val relationship = createRelationship(fixture)
+        val sharedProblem = createProblem(fixture.teacherProfile.id!!, fixture.math.id!!)
+        createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "이전 오답 숙제",
+            problem = sharedProblem,
+            attemptStatus = ProblemAttemptStatus.WRONG_FIRST,
+            isCorrect = false,
+            assignmentType = AssignmentType.HOMEWORK,
+            createdAt = Instant.parse("2026-05-10T00:00:00Z"),
+            submittedAt = Instant.parse("2026-05-10T03:00:00Z"),
+        )
+        createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "보관된 해결 과제",
+            problem = sharedProblem,
+            attemptStatus = ProblemAttemptStatus.CORRECT_FIRST,
+            isCorrect = true,
+            assignmentType = AssignmentType.TEST,
+            assignmentStatus = AssignmentStatus.ARCHIVED,
+            createdAt = Instant.parse("2026-05-12T00:00:00Z"),
+            submittedAt = Instant.parse("2026-05-12T03:00:00Z"),
+        )
+
+        mockMvc.get("/api/v1/students/${fixture.studentProfile.id}/wrong-answers") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("subjectId", fixture.math.id!!.toString())
+            param("unresolvedOnly", "false")
+            param("from", "2026-05-01")
+            param("to", "2026-05-31")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.totalCount") { value(0) }
+            jsonPath("$.data.items.length()") { value(0) }
+        }
+    }
+
+    @Test
+    fun `wrong-answer report surfaces latest pending manual-review answer as unresolved`() {
+        val fixture = createFixture()
+        val relationship = createRelationship(fixture)
+        val sharedProblem = createProblem(fixture.teacherProfile.id!!, fixture.math.id!!)
+        createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "이전 오답 숙제",
+            problem = sharedProblem,
+            attemptStatus = ProblemAttemptStatus.WRONG_FIRST,
+            isCorrect = false,
+            createdAt = Instant.parse("2026-05-10T00:00:00Z"),
+            submittedAt = Instant.parse("2026-05-10T03:00:00Z"),
+        )
+        val pendingAssignmentProblem = createPublishedSourceAssignment(
+            fixture = fixture,
+            relationship = relationship,
+            title = "최신 수동검토 숙제",
+            problem = sharedProblem,
+            attemptStatus = ProblemAttemptStatus.PENDING,
+            isCorrect = null,
+            createdAt = Instant.parse("2026-05-13T00:00:00Z"),
+            submittedAt = Instant.parse("2026-05-13T03:00:00Z"),
+        )
+
+        mockMvc.get("/api/v1/students/${fixture.studentProfile.id}/wrong-answers") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("subjectId", fixture.math.id!!.toString())
+            param("unresolvedOnly", "true")
+            param("from", "2026-05-01")
+            param("to", "2026-05-31")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.totalCount") { value(1) }
+            jsonPath("$.data.unresolvedCount") { value(1) }
+            jsonPath("$.data.items[0].assignmentProblemId") { value(pendingAssignmentProblem.id!!.toString()) }
+            jsonPath("$.data.items[0].attemptStatus") { value("PENDING") }
+            jsonPath("$.data.items[0].resolved") { value(false) }
+        }
+    }
+
+    @Test
+    fun `wrong-answer report enforces teacher role relationship subject and date range`() {
+        val fixture = createFixture()
+        createRelationship(fixture)
+        val otherFixture = createFixture()
+        createRelationship(otherFixture)
+
+        mockMvc.get("/api/v1/students/${fixture.studentProfile.id}/wrong-answers") {
+            with(user(fixture.studentUser.id!!.toString()).roles("STUDENT"))
+            param("subjectId", fixture.math.id!!.toString())
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.code") { value("FORBIDDEN") }
+        }
+
+        mockMvc.get("/api/v1/students/${otherFixture.studentProfile.id}/wrong-answers") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("subjectId", otherFixture.math.id!!.toString())
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+        }
+
+        mockMvc.get("/api/v1/students/${fixture.studentProfile.id}/wrong-answers") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            param("subjectId", fixture.math.id!!.toString())
+            param("from", "2026-06-01")
+            param("to", "2026-05-01")
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("VALIDATION_ERROR") }
+        }
+    }
+
+    @Test
     fun `wrong-answer notebook sources keep older wrong assignment when newer history is only partial`() {
         val fixture = createFixture()
         val relationship = createRelationship(fixture)
@@ -579,9 +819,10 @@ class WrongAnswerNotebookControllerIntegrationTest @Autowired constructor(
         title: String,
         problem: Problem = createProblem(fixture.teacherProfile.id!!, fixture.math.id!!),
         attemptStatus: ProblemAttemptStatus = ProblemAttemptStatus.WRONG_FIRST,
-        isCorrect: Boolean = false,
+        isCorrect: Boolean? = false,
         submissionStatus: SubmissionStatus = SubmissionStatus.SUBMITTED,
         assignmentType: AssignmentType = AssignmentType.HOMEWORK,
+        assignmentStatus: AssignmentStatus = AssignmentStatus.PUBLISHED,
         createdAt: Instant = Instant.now(),
         submittedAt: Instant? = Instant.now(),
     ): AssignmentProblem {
@@ -592,7 +833,7 @@ class WrongAnswerNotebookControllerIntegrationTest @Autowired constructor(
                 subjectId = fixture.math.id!!,
                 title = title,
                 assignmentType = assignmentType,
-                status = AssignmentStatus.PUBLISHED,
+                status = assignmentStatus,
                 resultVisibility = ResultVisibility.HIDDEN_UNTIL_RELEASED,
                 dueAt = Instant.parse("2030-06-04T10:00:00Z"),
                 publishedAt = createdAt,
@@ -709,8 +950,8 @@ class WrongAnswerNotebookControllerIntegrationTest @Autowired constructor(
     private fun createProblem(
         teacherId: UUID,
         subjectId: UUID,
+        labels: LabelFixture = createLabelFixture(subjectId),
     ): Problem {
-        val labels = createLabelFixture(subjectId)
         val problem = problemRepository.saveAndFlush(
             Problem(
                 ownerTeacherId = teacherId,

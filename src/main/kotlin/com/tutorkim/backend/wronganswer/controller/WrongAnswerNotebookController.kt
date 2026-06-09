@@ -7,9 +7,11 @@ import com.tutorkim.backend.wronganswer.dto.CreateWrongAnswerNotebookRequest
 import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookListResponse
 import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookResponse
 import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookSourcesResponse
+import com.tutorkim.backend.wronganswer.dto.WrongAnswerReportResponse
 import com.tutorkim.backend.wronganswer.service.WrongAnswerNotebookService
 import jakarta.validation.Valid
 import org.springframework.security.core.Authentication
+import org.springframework.format.annotation.DateTimeFormat
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import java.time.LocalDate
 import java.util.UUID
 
 @RestController
@@ -46,6 +49,26 @@ class WrongAnswerNotebookController(
             teacherUserId = currentUserId(authentication),
             studentId = studentId,
             subjectId = subjectId,
+        )
+
+    @GetMapping("/students/{studentId}/wrong-answers")
+    fun getWrongAnswers(
+        authentication: Authentication,
+        @PathVariable studentId: UUID,
+        @RequestParam subjectId: UUID,
+        @RequestParam(required = false) curriculumNodeId: UUID?,
+        @RequestParam(defaultValue = "true") unresolvedOnly: Boolean,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) from: LocalDate?,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) to: LocalDate?,
+    ): WrongAnswerReportResponse =
+        wrongAnswerNotebookService.getWrongAnswers(
+            teacherUserId = currentUserId(authentication),
+            studentId = studentId,
+            subjectId = subjectId,
+            curriculumNodeId = curriculumNodeId,
+            unresolvedOnly = unresolvedOnly,
+            from = from,
+            to = to,
         )
 
     @PostMapping("/wrong-answer-notebooks/{wrongAnswerNotebookId}/publish")
