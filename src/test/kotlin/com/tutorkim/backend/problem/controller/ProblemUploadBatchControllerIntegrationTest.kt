@@ -249,6 +249,25 @@ class ProblemUploadBatchControllerIntegrationTest @Autowired constructor(
         val storageKey = objectMapper.readTree(response).path("data").path("storageKey").asText()
         val maxStorageKeyLength = "problem-upload/".length + 36 + 1 + 36 + 1 + 120
         assertThat(storageKey.length).isLessThanOrEqualTo(maxStorageKeyLength)
+
+        val uppercaseTypeResponse = mockMvc.post("/api/v1/files/upload-url") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "filename" to "upper.png",
+                    "contentType" to "IMAGE/PNG",
+                    "sizeBytes" to 1024,
+                ),
+            )
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.contentType") { value("image/png") }
+        }.andReturn().response.contentAsString
+
+        val uppercaseTypeAssetId = UUID.fromString(objectMapper.readTree(uppercaseTypeResponse)["data"]["fileAssetId"].asText())
+        assertThat(fileAssetRepository.findById(uppercaseTypeAssetId).orElseThrow().contentType).isEqualTo("image/png")
     }
 
     @Test
@@ -394,6 +413,60 @@ class ProblemUploadBatchControllerIntegrationTest @Autowired constructor(
             status { isConflict() }
             jsonPath("$.error.code") { value("CONFLICT") }
             jsonPath("$.error.message") { value("현재 배치 상태에서는 파싱을 시작할 수 없습니다.") }
+        }
+    }
+
+    @Test
+    fun `parsing rejects duplicate and oversized deterministic stages`() {
+        val fixture = createTeacherFixture()
+        val subject = createSubject()
+        val fileAssetId = requestFileUpload(fixture.teacherUser.id!!)
+        val duplicateBatchId = createUploadBatch(fixture.teacherUser.id!!)
+        attachFile(
+            teacherUserId = fixture.teacherUser.id!!,
+            batchId = duplicateBatchId,
+            fileAssetId = fileAssetId,
+        )
+
+        mockMvc.post("/api/v1/problem-upload-batches/$duplicateBatchId/parse") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "parseMode" to "SEMANTIC_FIRST",
+                    "subjectId" to subject.id!!.toString(),
+                    "pipelineVersion" to "semantic-first-v1",
+                    "deterministicStages" to listOf("OCR", "OCR"),
+                ),
+            )
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("VALIDATION_ERROR") }
+            jsonPath("$.error.message") { value("파싱 단계는 중복될 수 없습니다.") }
+        }
+
+        val oversizedBatchId = createUploadBatch(fixture.teacherUser.id!!)
+        attachFile(
+            teacherUserId = fixture.teacherUser.id!!,
+            batchId = oversizedBatchId,
+            fileAssetId = requestFileUpload(fixture.teacherUser.id!!),
+        )
+        mockMvc.post("/api/v1/problem-upload-batches/$oversizedBatchId/parse") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(
+                mapOf(
+                    "parseMode" to "SEMANTIC_FIRST",
+                    "subjectId" to subject.id!!.toString(),
+                    "pipelineVersion" to "semantic-first-v1",
+                    "deterministicStages" to List(IngestionStageType.entries.size + 1) { "OCR" },
+                ),
+            )
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("VALIDATION_ERROR") }
         }
     }
 

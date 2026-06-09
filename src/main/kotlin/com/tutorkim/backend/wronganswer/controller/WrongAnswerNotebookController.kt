@@ -1,8 +1,7 @@
 package com.tutorkim.backend.wronganswer.controller
 
-import com.tutorkim.backend.common.exception.ApiException
-import com.tutorkim.backend.common.exception.ErrorCode
 import com.tutorkim.backend.common.web.API_PREFIX
+import com.tutorkim.backend.common.web.CurrentUser
 import com.tutorkim.backend.wronganswer.dto.CreateWrongAnswerNotebookRequest
 import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookListResponse
 import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookResponse
@@ -23,6 +22,7 @@ import java.util.UUID
 @RequestMapping(API_PREFIX)
 class WrongAnswerNotebookController(
     private val wrongAnswerNotebookService: WrongAnswerNotebookService,
+    private val currentUser: CurrentUser,
 ) {
     @PostMapping("/students/{studentId}/wrong-answer-notebooks")
     fun createDraft(
@@ -31,7 +31,7 @@ class WrongAnswerNotebookController(
         @Valid @RequestBody request: CreateWrongAnswerNotebookRequest,
     ): WrongAnswerNotebookResponse =
         wrongAnswerNotebookService.createDraft(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             studentId = studentId,
             request = request,
         )
@@ -43,7 +43,7 @@ class WrongAnswerNotebookController(
         @RequestParam subjectId: UUID,
     ): WrongAnswerNotebookSourcesResponse =
         wrongAnswerNotebookService.getSources(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             studentId = studentId,
             subjectId = subjectId,
         )
@@ -54,7 +54,7 @@ class WrongAnswerNotebookController(
         @PathVariable wrongAnswerNotebookId: UUID,
     ): WrongAnswerNotebookResponse =
         wrongAnswerNotebookService.publish(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             notebookId = wrongAnswerNotebookId,
         )
 
@@ -65,7 +65,7 @@ class WrongAnswerNotebookController(
         @RequestParam(defaultValue = "false") includeExpired: Boolean,
     ): List<WrongAnswerNotebookListResponse> =
         wrongAnswerNotebookService.listForTeacherStudent(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             studentId = studentId,
             includeExpired = includeExpired,
         )
@@ -76,14 +76,7 @@ class WrongAnswerNotebookController(
         @RequestParam(defaultValue = "false") includeExpired: Boolean,
     ): List<WrongAnswerNotebookListResponse> =
         wrongAnswerNotebookService.listForStudent(
-            studentUserId = currentUserId(authentication),
+            studentUserId = currentUser.id(authentication),
             includeExpired = includeExpired,
         )
-
-    private fun currentUserId(authentication: Authentication): UUID =
-        try {
-            UUID.fromString(authentication.name)
-        } catch (exception: IllegalArgumentException) {
-            throw ApiException(ErrorCode.UNAUTHORIZED, cause = exception)
-        }
 }

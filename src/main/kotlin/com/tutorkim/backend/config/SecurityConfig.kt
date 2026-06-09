@@ -4,16 +4,19 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.tutorkim.backend.common.dto.ApiEnvelope
 import com.tutorkim.backend.common.dto.ApiError
 import com.tutorkim.backend.common.exception.ErrorCode
+import com.tutorkim.backend.identity.service.AuthSessionAuthenticationFilter
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.http.HttpMethod
 import org.springframework.http.MediaType
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.web.SecurityFilterChain
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
 
 @Configuration
 class SecurityConfig(
 	private val objectMapper: ObjectMapper,
+	private val authSessionAuthenticationFilter: AuthSessionAuthenticationFilter,
 ) {
 	@Bean
 	fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
@@ -240,6 +243,11 @@ class SecurityConfig(
 					)
 					.hasRole("TEACHER")
 					.requestMatchers(
+						HttpMethod.PATCH,
+						"/api/v1/submissions/*/answers/*/grading",
+					)
+					.hasRole("TEACHER")
+					.requestMatchers(
 						HttpMethod.GET,
 						"/api/v1/assignments/*/questions",
 					)
@@ -252,6 +260,7 @@ class SecurityConfig(
 					.anyRequest()
 					.authenticated()
 			}
+		http.addFilterBefore(authSessionAuthenticationFilter, UsernamePasswordAuthenticationFilter::class.java)
 		http.exceptionHandling { exceptions ->
 			exceptions
 				.authenticationEntryPoint { _, response, _ ->

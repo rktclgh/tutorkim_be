@@ -278,7 +278,7 @@ class WrongAnswerNotebookControllerIntegrationTest @Autowired constructor(
         val fixture = createFixture()
         val relationship = createRelationship(fixture)
         val sharedProblem = createProblem(fixture.teacherProfile.id!!, fixture.math.id!!)
-        createPublishedSourceAssignment(
+        val olderWrong = createPublishedSourceAssignment(
             fixture = fixture,
             relationship = relationship,
             title = "이전 오답 숙제",
@@ -303,6 +303,17 @@ class WrongAnswerNotebookControllerIntegrationTest @Autowired constructor(
         }.andExpect {
             status { isOk() }
             jsonPath("$.data.assignments.length()") { value(0) }
+        }
+
+        mockMvc.post("/api/v1/students/${fixture.studentProfile.id}/wrong-answer-notebooks") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = notebookBody(fixture, olderWrong.id!!, olderWrong.problemId.toString())
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+            jsonPath("$.error.message") { value("현재 오답노트 후보를 찾을 수 없습니다.") }
         }
     }
 
@@ -408,7 +419,7 @@ class WrongAnswerNotebookControllerIntegrationTest @Autowired constructor(
         }.andExpect {
             status { isNotFound() }
             jsonPath("$.error.code") { value("NOT_FOUND") }
-            jsonPath("$.error.message") { value("오답 제출 기록을 찾을 수 없습니다.") }
+            jsonPath("$.error.message") { value("현재 오답노트 후보를 찾을 수 없습니다.") }
         }
     }
 
@@ -466,7 +477,7 @@ class WrongAnswerNotebookControllerIntegrationTest @Autowired constructor(
         }.andExpect {
             status { isNotFound() }
             jsonPath("$.error.code") { value("NOT_FOUND") }
-            jsonPath("$.error.message") { value("오답 제출 기록을 찾을 수 없습니다.") }
+            jsonPath("$.error.message") { value("현재 오답노트 후보를 찾을 수 없습니다.") }
         }
     }
 

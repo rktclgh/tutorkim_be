@@ -292,6 +292,50 @@ class ProblemUploadConfirmControllerIntegrationTest @Autowired constructor(
     }
 
     @Test
+    fun `confirm rejects pdf assets in image-only problem slots`() {
+        val fixture = createTeacherFixture()
+        val subject = createSubject()
+        val labels = createLabelFixture(subject.id!!)
+        val imageAsset = createFileAsset(fixture.teacherUser.id!!, "diagram.png")
+        val pdfAsset = createFileAsset(fixture.teacherUser.id!!, "solution.pdf", contentType = "application/pdf")
+        val batchId = createBatch(fixture.teacherProfile.id!!, ParseStatus.NEEDS_REVIEW)
+        val problemCountBefore = problemRepository.count()
+
+        mockMvc.post("/api/v1/problem-upload-batches/$batchId/confirm") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = confirmBody(
+                labels = labels,
+                diagramAssetId = imageAsset.id!!,
+                solutionAssetId = pdfAsset.id!!,
+            )
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("VALIDATION_ERROR") }
+            jsonPath("$.error.message") { value("이미지 첨부에는 이미지 파일만 사용할 수 있습니다.") }
+        }
+
+        mockMvc.post("/api/v1/problem-upload-batches/$batchId/confirm") {
+            with(user(fixture.teacherUser.id!!.toString()).roles("TEACHER"))
+            with(csrf())
+            contentType = MediaType.APPLICATION_JSON
+            content = confirmBody(
+                labels = labels,
+                diagramAssetId = pdfAsset.id!!,
+                solutionAssetId = imageAsset.id!!,
+            )
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("VALIDATION_ERROR") }
+            jsonPath("$.error.message") { value("이미지 첨부에는 이미지 파일만 사용할 수 있습니다.") }
+        }
+
+        assertThat(problemRepository.count()).isEqualTo(problemCountBefore)
+        assertThat(uploadBatchRepository.findById(batchId).orElseThrow().parseStatus).isEqualTo(ParseStatus.NEEDS_REVIEW)
+    }
+
+    @Test
     fun `confirm rolls back all created rows when a later problem is invalid`() {
         val fixture = createTeacherFixture()
         val subject = createSubject()
@@ -429,13 +473,14 @@ class ProblemUploadConfirmControllerIntegrationTest @Autowired constructor(
     private fun createFileAsset(
         ownerUserId: UUID,
         filename: String,
+        contentType: String = "image/png",
     ): FileAsset =
         fileAssetRepository.save(
             FileAsset(
                 ownerUserId = ownerUserId,
                 storageKey = "problem-upload/${UUID.randomUUID()}-$filename",
                 originalFilename = filename,
-                contentType = "image/png",
+                contentType = contentType,
                 sizeBytes = 1024,
             ),
         )

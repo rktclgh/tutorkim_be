@@ -28,14 +28,15 @@ class FileAssetService(
         ownerUserId: UUID,
         request: FileUploadUrlRequest,
     ): FileUploadUrlResponse {
-        validateUploadRequest(request)
+        val normalizedContentType = request.contentType.lowercase()
+        validateUploadRequest(request, normalizedContentType)
         val storageKey = buildStorageKey(ownerUserId, request.filename)
         val fileAsset = fileAssetRepository.save(
             FileAsset(
                 ownerUserId = ownerUserId,
                 storageKey = storageKey,
                 originalFilename = request.filename,
-                contentType = request.contentType,
+                contentType = normalizedContentType,
                 sizeBytes = request.sizeBytes,
             ),
         )
@@ -44,13 +45,16 @@ class FileAssetService(
             fileAssetId = fileAsset.id!!,
             storageKey = fileAsset.storageKey,
             filename = request.filename,
-            contentType = request.contentType,
+            contentType = normalizedContentType,
             sizeBytes = request.sizeBytes,
         )
     }
 
-    private fun validateUploadRequest(request: FileUploadUrlRequest) {
-        if (request.contentType.lowercase() !in allowedContentTypes) {
+    private fun validateUploadRequest(
+        request: FileUploadUrlRequest,
+        normalizedContentType: String,
+    ) {
+        if (normalizedContentType !in allowedContentTypes) {
             throw ApiException(ErrorCode.VALIDATION_ERROR, "지원하지 않는 파일 형식입니다.")
         }
         if (request.sizeBytes > maxSizeBytes) {

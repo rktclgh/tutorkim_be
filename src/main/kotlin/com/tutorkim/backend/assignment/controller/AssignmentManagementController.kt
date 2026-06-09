@@ -6,16 +6,17 @@ import com.tutorkim.backend.assignment.dto.AssignmentQuestionAnswerResponse
 import com.tutorkim.backend.assignment.dto.AssignmentQuestionResponse
 import com.tutorkim.backend.assignment.dto.AssignmentSummaryResponse
 import com.tutorkim.backend.assignment.dto.CreateAssignmentRequest
+import com.tutorkim.backend.assignment.dto.ManualGradeSubmissionAnswerRequest
 import com.tutorkim.backend.assignment.entity.AssignmentStatus
 import com.tutorkim.backend.assignment.entity.AssignmentType
 import com.tutorkim.backend.assignment.service.AssignmentQuestionService
 import com.tutorkim.backend.assignment.service.AssignmentManagementService
-import com.tutorkim.backend.common.exception.ApiException
-import com.tutorkim.backend.common.exception.ErrorCode
 import com.tutorkim.backend.common.web.API_PREFIX
+import com.tutorkim.backend.common.web.CurrentUser
 import jakarta.validation.Valid
 import org.springframework.security.core.Authentication
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -29,6 +30,7 @@ import java.util.UUID
 class AssignmentManagementController(
     private val assignmentManagementService: AssignmentManagementService,
     private val assignmentQuestionService: AssignmentQuestionService,
+    private val currentUser: CurrentUser,
 ) {
     @PostMapping("/assignments")
     fun createAssignment(
@@ -36,7 +38,7 @@ class AssignmentManagementController(
         @Valid @RequestBody request: CreateAssignmentRequest,
     ): AssignmentSummaryResponse =
         assignmentManagementService.createDraft(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             request = request,
         )
 
@@ -46,7 +48,7 @@ class AssignmentManagementController(
         @PathVariable assignmentId: UUID,
     ): AssignmentSummaryResponse =
         assignmentManagementService.publish(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             assignmentId = assignmentId,
         )
 
@@ -56,8 +58,22 @@ class AssignmentManagementController(
         @PathVariable assignmentId: UUID,
     ): AssignmentDetailResponse =
         assignmentManagementService.releaseResults(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             assignmentId = assignmentId,
+        )
+
+    @PatchMapping("/submissions/{submissionId}/answers/{answerId}/grading")
+    fun manuallyGradeSubmissionAnswer(
+        authentication: Authentication,
+        @PathVariable submissionId: UUID,
+        @PathVariable answerId: UUID,
+        @Valid @RequestBody request: ManualGradeSubmissionAnswerRequest,
+    ): AssignmentDetailResponse =
+        assignmentManagementService.manuallyGradeSubmissionAnswer(
+            teacherUserId = currentUser.id(authentication),
+            submissionId = submissionId,
+            answerId = answerId,
+            request = request,
         )
 
     @GetMapping("/assignments")
@@ -69,7 +85,7 @@ class AssignmentManagementController(
         @RequestParam(defaultValue = "100") limit: Int,
     ): List<AssignmentSummaryResponse> =
         assignmentManagementService.listAssignments(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             studentId = studentId,
             type = type,
             status = status,
@@ -82,7 +98,7 @@ class AssignmentManagementController(
         @PathVariable assignmentId: UUID,
     ): AssignmentDetailResponse =
         assignmentManagementService.getDetail(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             assignmentId = assignmentId,
         )
 
@@ -93,7 +109,7 @@ class AssignmentManagementController(
         @RequestParam(defaultValue = "false") unresolvedOnly: Boolean,
     ): List<AssignmentQuestionResponse> =
         assignmentQuestionService.listAssignmentQuestions(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             assignmentId = assignmentId,
             unresolvedOnly = unresolvedOnly,
         )
@@ -106,16 +122,10 @@ class AssignmentManagementController(
         @Valid @RequestBody request: AnswerAssignmentQuestionRequest,
     ): AssignmentQuestionAnswerResponse =
         assignmentQuestionService.answerQuestionWithTeacherSolutionFile(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             assignmentId = assignmentId,
             questionId = questionId,
             request = request,
         )
 
-    private fun currentUserId(authentication: Authentication): UUID =
-        try {
-            UUID.fromString(authentication.name)
-        } catch (exception: IllegalArgumentException) {
-            throw ApiException(ErrorCode.UNAUTHORIZED, cause = exception)
-        }
 }

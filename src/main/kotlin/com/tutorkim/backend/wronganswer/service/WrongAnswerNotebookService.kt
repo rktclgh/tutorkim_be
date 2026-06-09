@@ -93,11 +93,17 @@ class WrongAnswerNotebookService(
             throw ApiException(ErrorCode.NOT_FOUND, "학생 과목을 찾을 수 없습니다.")
         }
         validateUniqueRefs(request)
+        val currentSourceAssignmentProblemIds = findCurrentSourceAssignmentProblemIds(
+            teacherId = teacherId,
+            relationship = relationship,
+            subjectId = request.subjectId,
+        )
         val sourceItems = resolveSourceProblems(
             teacherId = teacherId,
             relationship = relationship,
             subjectId = request.subjectId,
             request = request,
+            currentSourceAssignmentProblemIds = currentSourceAssignmentProblemIds,
         )
 
         val now = Instant.now()
@@ -285,6 +291,23 @@ class WrongAnswerNotebookService(
             throw ApiException(ErrorCode.VALIDATION_ERROR, "오답노트 문제는 중복될 수 없습니다.")
         }
     }
+
+    private fun findCurrentSourceAssignmentProblemIds(
+        teacherId: UUID,
+        relationship: TeacherStudent,
+        subjectId: UUID,
+    ): Set<UUID> =
+        (
+            findPreviousNotebookSources(
+                teacherId = teacherId,
+                relationship = relationship,
+                subjectId = subjectId,
+            ) + findAssignmentSources(
+                teacherId = teacherId,
+                relationship = relationship,
+                subjectId = subjectId,
+            )
+        ).map { it.assignmentProblemId }.toSet()
 
     private fun findAssignmentSources(
         teacherId: UUID,
@@ -485,9 +508,14 @@ class WrongAnswerNotebookService(
         relationship: TeacherStudent,
         subjectId: UUID,
         request: CreateWrongAnswerNotebookRequest,
+        currentSourceAssignmentProblemIds: Set<UUID>,
     ): List<SourceProblem> {
+        val requestedSourceIds = request.problemRefs.map { it.sourceAssignmentProblemId }
+        if (!currentSourceAssignmentProblemIds.containsAll(requestedSourceIds)) {
+            throw ApiException(ErrorCode.NOT_FOUND, "현재 오답노트 후보를 찾을 수 없습니다.")
+        }
         val assignmentProblems = assignmentProblemRepository.findAllById(
-            request.problemRefs.map { it.sourceAssignmentProblemId },
+            requestedSourceIds,
         ).associateBy { it.id!! }
         val assignments = assignmentRepository.findAllById(
             assignmentProblems.values.map { it.assignmentId }.toSet(),

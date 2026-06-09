@@ -73,6 +73,12 @@ end $$;;
 
 do $$
 begin
+	if to_regclass('public.auth_sessions') is not null then
+		execute 'create unique index if not exists auth_sessions_session_token_hash_unique
+			on auth_sessions (session_token_hash)
+			where session_token_hash is not null';
+	end if;
+
 	if to_regclass('public.problem_upload_batches') is not null then
 		execute 'alter table problem_upload_batches
 			add column if not exists pipeline_version varchar(80),
@@ -108,6 +114,47 @@ begin
 	if to_regclass('public.submission_solution_files') is not null then
 		execute 'create unique index if not exists submission_solution_file_asset_unique
 			on submission_solution_files (file_asset_id)';
+	end if;
+
+	if to_regclass('public.teacher_students') is not null
+		and to_regclass('public.subjects') is not null
+		and to_regclass('public.curriculum_nodes') is not null then
+		execute 'create table if not exists lesson_schedules (
+			id uuid primary key default gen_random_uuid(),
+			teacher_student_id uuid not null references teacher_students(id),
+			subject_id uuid not null references subjects(id),
+			day_of_week smallint check (day_of_week between 0 and 6),
+			start_time time not null,
+			end_time time not null,
+			timezone varchar(50) not null default ''Asia/Seoul'',
+			active boolean not null default true,
+			created_at timestamptz not null default now(),
+			updated_at timestamptz not null default now()
+		)';
+
+		execute 'create table if not exists lesson_sessions (
+			id uuid primary key default gen_random_uuid(),
+			teacher_student_id uuid not null references teacher_students(id),
+			subject_id uuid not null references subjects(id),
+			scheduled_start_at timestamptz not null,
+			scheduled_end_at timestamptz,
+			actual_start_at timestamptz,
+			actual_end_at timestamptz,
+			status lesson_status not null default ''SCHEDULED'',
+			previous_progress_summary text,
+			current_progress text,
+			next_progress text,
+			current_curriculum_node_id uuid references curriculum_nodes(id),
+			focus_level focus_level,
+			understanding_level understanding_level,
+			assignment_performance assignment_performance,
+			lesson_memo text,
+			created_at timestamptz not null default now(),
+			updated_at timestamptz not null default now()
+		)';
+
+		execute 'create index if not exists lesson_sessions_teacher_student_time_idx
+			on lesson_sessions (teacher_student_id, scheduled_start_at)';
 	end if;
 
 	if to_regclass('public.assignments') is not null

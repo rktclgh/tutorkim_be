@@ -2,6 +2,7 @@ package com.tutorkim.backend.problem.service
 
 import com.tutorkim.backend.common.exception.ApiException
 import com.tutorkim.backend.common.exception.ErrorCode
+import com.tutorkim.backend.file.entity.FileAsset
 import com.tutorkim.backend.content.entity.CurriculumNode
 import com.tutorkim.backend.content.repository.CurriculumNodeRepository
 import com.tutorkim.backend.file.repository.FileAssetRepository
@@ -104,7 +105,7 @@ class ProblemContentWriteSupport(
             when (block.type) {
                 ProblemBlockType.TEXT -> requireBlockText(block)
                 ProblemBlockType.MATH -> requireBlockLatex(block)
-                ProblemBlockType.DIAGRAM_IMAGE, ProblemBlockType.TABLE_IMAGE -> requireOwnedFile(teacherUserId, block.fileAssetId)
+                ProblemBlockType.DIAGRAM_IMAGE, ProblemBlockType.TABLE_IMAGE -> requireOwnedImageFile(teacherUserId, block.fileAssetId)
                 ProblemBlockType.CHOICE_LIST -> requireBlockText(block)
                 ProblemBlockType.EXPLANATION -> throw ApiException(ErrorCode.VALIDATION_ERROR, "문제 본문 블록에는 풀이 블록을 사용할 수 없습니다.")
             }
@@ -129,7 +130,7 @@ class ProblemContentWriteSupport(
         if (asset.sourceType != ProblemExplanationSourceType.TEACHER_SOLUTION_IMAGE) {
             throw ApiException(ErrorCode.VALIDATION_ERROR, "선생 풀이 파일은 TEACHER_SOLUTION_IMAGE만 사용할 수 있습니다.")
         }
-        requireOwnedFile(teacherUserId, asset.fileAssetId)
+        requireOwnedImageFile(teacherUserId, asset.fileAssetId)
     }
 
     fun buildProblemBlocks(
@@ -196,9 +197,21 @@ class ProblemContentWriteSupport(
     private fun requireOwnedFile(
         teacherUserId: UUID,
         fileAssetId: UUID?,
-    ) {
-        if (fileAssetId == null || fileAssetRepository.findByIdAndOwnerUserId(fileAssetId, teacherUserId) == null) {
+    ): FileAsset {
+        val fileAsset = fileAssetId?.let { fileAssetRepository.findByIdAndOwnerUserId(it, teacherUserId) }
+        if (fileAsset == null) {
             throw ApiException(ErrorCode.NOT_FOUND, "첨부 파일을 찾을 수 없습니다.")
+        }
+        return fileAsset
+    }
+
+    private fun requireOwnedImageFile(
+        teacherUserId: UUID,
+        fileAssetId: UUID?,
+    ) {
+        val fileAsset = requireOwnedFile(teacherUserId, fileAssetId)
+        if (fileAsset.contentType !in IMAGE_CONTENT_TYPES) {
+            throw ApiException(ErrorCode.VALIDATION_ERROR, "이미지 첨부에는 이미지 파일만 사용할 수 있습니다.")
         }
     }
 
@@ -211,6 +224,10 @@ class ProblemContentWriteSupport(
 
     private fun ProblemBlockType.isImageBlock(): Boolean =
         this == ProblemBlockType.DIAGRAM_IMAGE || this == ProblemBlockType.TABLE_IMAGE
+
+    companion object {
+        private val IMAGE_CONTENT_TYPES = setOf("image/jpeg", "image/png", "image/webp")
+    }
 }
 
 data class ProblemLabelSet(

@@ -230,5 +230,17 @@ interface TeacherInviteCodeRepository : JpaRepository<TeacherInviteCode, UUID> {
 interface TeacherStudentSubjectRepository : JpaRepository<TeacherStudentSubject, UUID> {
     fun findByTeacherStudent_Id(teacherStudentId: UUID): List<TeacherStudentSubject>
 
+    @Query(
+        """
+        select link
+        from TeacherStudentSubject link
+        join fetch link.subject subject
+        where link.teacherStudent.id in :teacherStudentIds
+        """,
+    )
+    fun findByTeacherStudent_IdInWithSubject(
+        @Param("teacherStudentIds") teacherStudentIds: Collection<UUID>,
+    ): List<TeacherStudentSubject>
+
     fun existsByTeacherStudent_IdAndSubject_Id(teacherStudentId: UUID, subjectId: UUID): Boolean
 }

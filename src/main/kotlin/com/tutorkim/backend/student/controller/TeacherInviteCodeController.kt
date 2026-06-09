@@ -3,6 +3,7 @@ package com.tutorkim.backend.student.controller
 import com.tutorkim.backend.common.exception.ApiException
 import com.tutorkim.backend.common.exception.ErrorCode
 import com.tutorkim.backend.common.web.API_PREFIX
+import com.tutorkim.backend.common.web.CurrentUser
 import com.tutorkim.backend.student.dto.AddTeacherByInviteCodeRequest
 import com.tutorkim.backend.student.dto.CreateTeacherInviteCodeRequest
 import com.tutorkim.backend.student.dto.TeacherInviteCodeResponse
@@ -29,6 +30,7 @@ import java.util.UUID
 @RequestMapping(API_PREFIX)
 class TeacherInviteCodeController(
     private val teacherInviteCodeService: TeacherInviteCodeService,
+    private val currentUser: CurrentUser,
 ) {
     @PostMapping("teacher/invite-codes")
     fun createTeacherInviteCode(
@@ -36,7 +38,7 @@ class TeacherInviteCodeController(
         @Valid @RequestBody request: CreateTeacherInviteCodeRequest,
     ): TeacherInviteCodeResponse {
         val inviteCode = teacherInviteCodeService.createInviteCodeForTeacherUser(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             expiresIn = Duration.ofHours(request.expiresInHours),
         )
         return TeacherInviteCodeResponse.from(inviteCode)
@@ -44,7 +46,7 @@ class TeacherInviteCodeController(
 
     @GetMapping("teacher/invite-codes/active")
     fun getActiveTeacherInviteCode(authentication: Authentication): TeacherInviteCodeResponse? =
-        teacherInviteCodeService.findActiveCodeForTeacherUser(currentUserId(authentication))
+        teacherInviteCodeService.findActiveCodeForTeacherUser(currentUser.id(authentication))
             ?.let(TeacherInviteCodeResponse::from)
 
     @DeleteMapping("teacher/invite-codes/{inviteCodeId}")
@@ -54,7 +56,7 @@ class TeacherInviteCodeController(
     ): ResponseEntity<Void> {
         try {
             teacherInviteCodeService.revokeInviteCodeForTeacherUser(
-                teacherUserId = currentUserId(authentication),
+                teacherUserId = currentUser.id(authentication),
                 inviteCodeId = inviteCodeId,
             )
         } catch (exception: InviteCodeNotConsumableException) {
@@ -71,7 +73,7 @@ class TeacherInviteCodeController(
         val relationship = try {
             teacherInviteCodeService.consumeInviteCodeForStudentUser(
                 code = request.inviteCode.trim().uppercase(),
-                studentUserId = currentUserId(authentication),
+                studentUserId = currentUser.id(authentication),
             )
         } catch (exception: InviteCodeNotConsumableException) {
             throw ApiException(
@@ -95,7 +97,7 @@ class TeacherInviteCodeController(
     ): ResponseEntity<Void> {
         try {
             teacherInviteCodeService.deactivateRelationshipForTeacherUser(
-                teacherUserId = currentUserId(authentication),
+                teacherUserId = currentUser.id(authentication),
                 studentId = studentId,
             )
         } catch (exception: TeacherStudentRelationshipNotFoundException) {
@@ -104,11 +106,4 @@ class TeacherInviteCodeController(
 
         return ResponseEntity.noContent().build()
     }
-
-    private fun currentUserId(authentication: Authentication): UUID =
-        try {
-            UUID.fromString(authentication.name)
-        } catch (exception: IllegalArgumentException) {
-            throw ApiException(ErrorCode.UNAUTHORIZED, cause = exception)
-        }
 }

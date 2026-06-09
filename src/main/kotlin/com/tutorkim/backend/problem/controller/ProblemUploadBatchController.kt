@@ -1,8 +1,7 @@
 package com.tutorkim.backend.problem.controller
 
-import com.tutorkim.backend.common.exception.ApiException
-import com.tutorkim.backend.common.exception.ErrorCode
 import com.tutorkim.backend.common.web.API_PREFIX
+import com.tutorkim.backend.common.web.CurrentUser
 import com.tutorkim.backend.problem.dto.AttachProblemUploadFileRequest
 import com.tutorkim.backend.problem.dto.ConfirmProblemUploadBatchRequest
 import com.tutorkim.backend.problem.dto.ConfirmProblemUploadBatchResponse
@@ -28,6 +27,7 @@ import java.util.UUID
 class ProblemUploadBatchController(
     private val problemUploadBatchService: ProblemUploadBatchService,
     private val problemUploadConfirmService: ProblemUploadConfirmService,
+    private val currentUser: CurrentUser,
 ) {
     @PostMapping("/problem-upload-batches")
     fun createBatch(
@@ -35,7 +35,7 @@ class ProblemUploadBatchController(
         @Valid @RequestBody request: CreateProblemUploadBatchRequest,
     ): ProblemUploadBatchResponse =
         problemUploadBatchService.createBatch(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             request = request,
         )
 
@@ -46,7 +46,7 @@ class ProblemUploadBatchController(
         @Valid @RequestBody request: AttachProblemUploadFileRequest,
     ): ProblemUploadFileResponse =
         problemUploadBatchService.attachFile(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             batchId = batchId,
             request = request,
         )
@@ -58,7 +58,7 @@ class ProblemUploadBatchController(
         @Valid @RequestBody request: StartProblemParsingRequest,
     ): ProblemUploadBatchResponse =
         problemUploadBatchService.startParsing(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             batchId = batchId,
             request = request,
         )
@@ -70,7 +70,7 @@ class ProblemUploadBatchController(
         @Valid @RequestBody request: RetryProblemUploadBatchRequest,
     ): ProblemUploadBatchResponse =
         problemUploadBatchService.retryParsing(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             batchId = batchId,
             request = request,
         )
@@ -82,7 +82,7 @@ class ProblemUploadBatchController(
         @Valid @RequestBody request: ConfirmProblemUploadBatchRequest,
     ): ConfirmProblemUploadBatchResponse =
         problemUploadConfirmService.confirm(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             batchId = batchId,
             request = request,
         )
@@ -93,14 +93,7 @@ class ProblemUploadBatchController(
         @PathVariable batchId: UUID,
     ): ProblemUploadBatchResponse =
         problemUploadBatchService.getBatch(
-            teacherUserId = currentUserId(authentication),
+            teacherUserId = currentUser.id(authentication),
             batchId = batchId,
         )
-
-    private fun currentUserId(authentication: Authentication): UUID =
-        try {
-            UUID.fromString(authentication.name)
-        } catch (exception: IllegalArgumentException) {
-            throw ApiException(ErrorCode.UNAUTHORIZED, cause = exception)
-        }
 }

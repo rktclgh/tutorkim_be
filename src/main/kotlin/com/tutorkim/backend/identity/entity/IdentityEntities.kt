@@ -137,6 +137,7 @@ class UserAuthAccount(
     name = "auth_sessions",
     indexes = [
         Index(name = "auth_sessions_user_status_idx", columnList = "user_id,status"),
+        Index(name = "auth_sessions_session_token_hash_idx", columnList = "session_token_hash"),
         Index(name = "auth_sessions_expires_idx", columnList = "expires_at"),
     ],
 )

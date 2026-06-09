@@ -149,6 +149,18 @@ interface AssignmentTargetRepository : JpaRepository<AssignmentTarget, UUID> {
 interface AssignmentSubmissionRepository : JpaRepository<AssignmentSubmission, UUID> {
 	fun findByAssignmentId(assignmentId: UUID): List<AssignmentSubmission>
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query(
+		"""
+		select submission
+		from AssignmentSubmission submission
+		where submission.id = :submissionId
+		""",
+	)
+	fun findByIdForUpdate(
+		@Param("submissionId") submissionId: UUID,
+	): AssignmentSubmission?
+
 	fun findByAssignmentIdAndTeacherStudentId(
 		assignmentId: UUID,
 		teacherStudentId: UUID,
@@ -177,6 +189,20 @@ interface AssignmentSubmissionRepository : JpaRepository<AssignmentSubmission, U
 }
 
 interface SubmissionAnswerRepository : JpaRepository<SubmissionAnswer, UUID> {
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query(
+		"""
+		select answer
+		from SubmissionAnswer answer
+		where answer.id = :answerId
+		  and answer.submissionId = :submissionId
+		""",
+	)
+	fun findByIdAndSubmissionIdForUpdate(
+		@Param("answerId") answerId: UUID,
+		@Param("submissionId") submissionId: UUID,
+	): SubmissionAnswer?
+
 	fun findBySubmissionIdAndProblemId(
 		submissionId: UUID,
 		problemId: UUID,
