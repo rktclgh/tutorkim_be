@@ -30,6 +30,8 @@ import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookResponse
 import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookSourceItemResponse
 import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookSourceType
 import com.tutorkim.backend.wronganswer.dto.WrongAnswerNotebookSourcesResponse
+import com.tutorkim.backend.wronganswer.dto.WrongAnswerReportItemResponse
+import com.tutorkim.backend.wronganswer.dto.WrongAnswerReportResponse
 import com.tutorkim.backend.wronganswer.entity.WrongAnswerNotebook
 import com.tutorkim.backend.wronganswer.entity.WrongAnswerNotebookProblem
 import com.tutorkim.backend.wronganswer.entity.WrongAnswerNotebookStatus
@@ -39,6 +41,8 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
 
 @Service
@@ -78,6 +82,46 @@ class WrongAnswerNotebookService(
                 relationship = relationship,
                 subjectId = subjectId,
             ),
+        )
+    }
+
+    @Transactional(readOnly = true)
+    fun getWrongAnswers(
+        teacherUserId: UUID,
+        studentId: UUID,
+        subjectId: UUID,
+        curriculumNodeId: UUID?,
+        unresolvedOnly: Boolean,
+        from: LocalDate?,
+        to: LocalDate?,
+    ): WrongAnswerReportResponse {
+        if (from != null && to != null && from.isAfter(to)) {
+            throw ApiException(ErrorCode.VALIDATION_ERROR, "조회 종료일은 시작일 이후여야 합니다.")
+        }
+        val teacherId = findTeacherId(teacherUserId)
+        val relationship = findActiveRelationshipReadOnly(teacherUserId, studentId)
+        if (!teacherStudentSubjectRepository.existsByTeacherStudent_IdAndSubject_Id(relationship.id!!, subjectId)) {
+            throw ApiException(ErrorCode.NOT_FOUND, "학생 과목을 찾을 수 없습니다.")
+        }
+        val reportItems = findWrongAnswerReportItems(
+            teacherId = teacherId,
+            relationship = relationship,
+            subjectId = subjectId,
+            curriculumNodeId = curriculumNodeId,
+            from = from,
+            to = to,
+        )
+        val filteredItems = if (unresolvedOnly) reportItems.filterNot { it.resolved } else reportItems
+        return WrongAnswerReportResponse(
+            studentId = studentId,
+            subjectId = subjectId,
+            curriculumNodeId = curriculumNodeId,
+            unresolvedOnly = unresolvedOnly,
+            from = from,
+            to = to,
+            totalCount = filteredItems.size,
+            unresolvedCount = filteredItems.count { !it.resolved },
+            items = filteredItems,
         )
     }
 
@@ -284,6 +328,108 @@ class WrongAnswerNotebookService(
         if (request.problemRefs.map { it.sourceAssignmentProblemId }.toSet().size != request.problemRefs.size) {
             throw ApiException(ErrorCode.VALIDATION_ERROR, "오답노트 문제는 중복될 수 없습니다.")
         }
+    }
+
+    private fun findWrongAnswerReportItems(
+        teacherId: UUID,
+        relationship: TeacherStudent,
+        subjectId: UUID,
+        curriculumNodeId: UUID?,
+        from: LocalDate?,
+        to: LocalDate?,
+    ): List<WrongAnswerReportItemResponse> {
+        val relationshipId = relationship.id!!
+        val assignments = assignmentRepository.findByTeacherStudentIdAndSubjectIdAndAssignmentTypeInAndStatusInOrderByCreatedAtDesc(
+            teacherStudentId = relationshipId,
+            subjectId = subjectId,
+            assignmentTypes = WRONG_ANSWER_REPORT_ASSIGNMENT_TYPES,
+            statuses = WRONG_ANSWER_REPORT_ASSIGNMENT_STATUSES,
+        )
+        if (assignments.isEmpty()) {
+            return emptyList()
+        }
+        val assignmentsById = assignments.associateBy { it.id!! }
+        val assignmentProblems = assignmentProblemRepository.findByAssignmentIdIn(assignmentsById.keys)
+        if (assignmentProblems.isEmpty()) {
+            return emptyList()
+        }
+        val submissionsByAssignmentId = assignmentSubmissionRepository.findByAssignmentIdIn(assignmentsById.keys)
+            .filter { submission ->
+                submission.teacherStudentId == relationshipId &&
+                    submission.status in SUBMITTED_SOURCE_STATUSES &&
+                    submission.submittedAt != null
+            }
+            .associateBy { it.assignmentId }
+        if (submissionsByAssignmentId.isEmpty()) {
+            return emptyList()
+        }
+        val problemsById = problemRepository.findAllById(assignmentProblems.map { it.problemId }.toSet())
+            .filter { problem ->
+                problem.ownerTeacherId == teacherId &&
+                    problem.subjectId == subjectId &&
+                    problem.deletedAt == null &&
+                    (curriculumNodeId == null || problem.hasLabel(curriculumNodeId))
+            }
+            .associateBy { it.id!! }
+        if (problemsById.isEmpty()) {
+            return emptyList()
+        }
+        val answersBySubmissionAndProblemId = submissionAnswerRepository.findBySubmissionIdInAndProblemIdIn(
+            submissionIds = submissionsByAssignmentId.values.map { it.id!! },
+            problemIds = problemsById.keys,
+        ).associateBy { it.submissionId to it.problemId }
+
+        data class ReportCandidate(
+            val assignment: Assignment,
+            val assignmentProblem: AssignmentProblem,
+            val submission: AssignmentSubmission,
+            val answer: SubmissionAnswer,
+            val problem: Problem,
+        )
+
+        return assignmentProblems.mapNotNull { assignmentProblem ->
+            val assignment = assignmentsById[assignmentProblem.assignmentId] ?: return@mapNotNull null
+            val submission = submissionsByAssignmentId[assignment.id!!] ?: return@mapNotNull null
+            val problem = problemsById[assignmentProblem.problemId] ?: return@mapNotNull null
+            val answer = answersBySubmissionAndProblemId[submission.id!! to problem.id!!] ?: return@mapNotNull null
+            ReportCandidate(
+                assignment = assignment,
+                assignmentProblem = assignmentProblem,
+                submission = submission,
+                answer = answer,
+                problem = problem,
+            )
+        }.sortedWith(
+            compareByDescending<ReportCandidate> { it.submission.submittedAt ?: Instant.EPOCH }
+                .thenByDescending { it.assignment.createdAt }
+                .thenBy { it.assignmentProblem.sortOrder },
+        ).distinctBy { it.problem.id!! }
+            .mapNotNull { candidate ->
+                if (candidate.answer.attemptStatus !in WRONG_ANSWER_REPORT_STATUSES) {
+                    return@mapNotNull null
+                }
+                val resolved = candidate.answer.attemptStatus == ProblemAttemptStatus.CORRECT_RETRY
+                if (!isWithinReportDateRange(candidate.submission.submittedAt!!, from, to)) {
+                    return@mapNotNull null
+                }
+                WrongAnswerReportItemResponse(
+                    problemId = candidate.problem.id!!,
+                    assignmentId = candidate.assignment.id!!,
+                    assignmentProblemId = candidate.assignmentProblem.id!!,
+                    assignmentTitle = candidate.assignment.title,
+                    assignmentType = candidate.assignment.assignmentType,
+                    submittedAt = candidate.submission.submittedAt!!,
+                    attemptStatus = candidate.answer.attemptStatus,
+                    retryCount = candidate.answer.retryCount,
+                    isCorrect = candidate.answer.isCorrect,
+                    resolved = resolved,
+                    difficulty = candidate.problem.difficulty,
+                    labelDepth1Id = candidate.problem.labelDepth1Id,
+                    labelDepth2Id = candidate.problem.labelDepth2Id,
+                    labelDepth3Id = candidate.problem.labelDepth3Id,
+                    labelDepth4Id = candidate.problem.labelDepth4Id,
+                )
+            }
     }
 
     private fun findAssignmentSources(
@@ -614,6 +760,23 @@ class WrongAnswerNotebookService(
         return relationship
     }
 
+    private fun Problem.hasLabel(labelId: UUID): Boolean =
+        labelDepth1Id == labelId ||
+            labelDepth2Id == labelId ||
+            labelDepth3Id == labelId ||
+            labelDepth4Id == labelId
+
+    private fun isWithinReportDateRange(
+        submittedAt: Instant,
+        from: LocalDate?,
+        to: LocalDate?,
+    ): Boolean {
+        val start = from?.atStartOfDay(REPORT_ZONE)?.toInstant()
+        val endExclusive = to?.plusDays(1)?.atStartOfDay(REPORT_ZONE)?.toInstant()
+        return (start == null || !submittedAt.isBefore(start)) &&
+            (endExclusive == null || submittedAt.isBefore(endExclusive))
+    }
+
     private data class SourceProblem(
         val uniqueProblemId: String,
         val assignmentTitle: String,
@@ -631,13 +794,30 @@ class WrongAnswerNotebookService(
             AssignmentType.HOMEWORK,
             AssignmentType.TEST,
         )
+        private val WRONG_ANSWER_REPORT_ASSIGNMENT_TYPES = setOf(
+            AssignmentType.HOMEWORK,
+            AssignmentType.TEST,
+            AssignmentType.REVIEW_SET,
+        )
         private val WRONG_ANSWER_SOURCE_ASSIGNMENT_STATUSES = setOf(
             AssignmentStatus.PUBLISHED,
             AssignmentStatus.CLOSED,
+        )
+        private val WRONG_ANSWER_REPORT_ASSIGNMENT_STATUSES = setOf(
+            AssignmentStatus.PUBLISHED,
+            AssignmentStatus.CLOSED,
+            AssignmentStatus.ARCHIVED,
+        )
+        private val WRONG_ANSWER_REPORT_STATUSES = setOf(
+            ProblemAttemptStatus.WRONG_FIRST,
+            ProblemAttemptStatus.CORRECT_RETRY,
+            ProblemAttemptStatus.UNKNOWN,
+            ProblemAttemptStatus.PENDING,
         )
         private val SUBMITTED_SOURCE_STATUSES = setOf(
             SubmissionStatus.SUBMITTED,
             SubmissionStatus.LATE_SUBMITTED,
         )
+        private val REPORT_ZONE: ZoneId = ZoneId.of("Asia/Seoul")
     }
 }
